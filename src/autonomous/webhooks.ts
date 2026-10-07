@@ -130,6 +130,12 @@ async function deliverWithRetry(
     headers['X-Goose-Autonomous-Signature'] = signPayload(config.secret, body);
   }
 
+  // v0.8: resolve the retry policy
+  const policy = config.retry ?? {};
+  const maxAttempts = policy.maxAttempts ?? 2;
+  const backoffMs = policy.backoffMs ?? 2000;
+  const strategy = policy.backoffStrategy ?? 'fixed';
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -158,13 +164,16 @@ async function deliverWithRetry(
     });
   } catch (e) {
     const msg = (e as Error).message;
-    if (attempt < 2) {
-      // retry once after 2s
-      await new Promise((r) => setTimeout(r, 2000));
-      await deliverWithRetry(config, payload, logger, 2);
+    if (attempt < maxAttempts) {
+      // v0.8: compute backoff (fixed or exponential)
+      const delay = strategy === 'exponential'
+        ? backoffMs * Math.pow(2, attempt - 1)
+        : backoffMs;
+      await new Promise((r) => setTimeout(r, delay));
+      await deliverWithRetry(config, payload, logger, attempt + 1);
     } else {
       await logger.warn(
-        `webhook delivery failed (2 attempts): ${config.url} — ${msg}`,
+        `webhook delivery failed (${maxAttempts} attempts): ${config.url} — ${msg}`,
         payload.runId
       );
       recordDelivery({

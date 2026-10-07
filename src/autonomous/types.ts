@@ -156,13 +156,16 @@ export interface AutonomousSettings {
 // ── v0.7: webhook configuration ───────────────────────────────────────────────
 
 /**
- * A single webhook destination with optional event filtering + HMAC signing.
+ * A single webhook destination with optional event filtering, HMAC signing,
+ * and retry policy.
  *
  * - `url`: the endpoint to POST to
  * - `events`: optional allowlist of event types. If omitted, ALL events are sent.
  * - `secret`: if set, the payload is HMAC-SHA256 signed and the signature is
  *   sent in the `X-Goose-Autonomous-Signature` header. Receivers verify with:
  *     `crypto.timingSafeEqual(signature, hmacSha256(secret, body))`
+ * - `retry`: v0.8 optional retry policy. If omitted, defaults to 1 retry
+ *   with a 2s delay (the v0.6/v0.7 behavior).
  */
 export interface WebhookConfig {
   url: string;
@@ -173,6 +176,30 @@ export interface WebhookConfig {
    * includes an `X-Goose-Autonomous-Signature: sha256=<hex>` header.
    */
   secret?: string;
+  /**
+   * v0.8: Optional retry policy. Overrides the default (1 retry, 2s delay).
+   */
+  retry?: WebhookRetryPolicy;
+}
+
+// ── v0.8: configurable retry policy ──────────────────────────────────────────
+
+/**
+ * Per-webhook retry policy.
+ *
+ * - `maxAttempts`: total delivery attempts (1 = no retry, 3 = try 3 times).
+ *   Default: 2 (one initial + one retry).
+ * - `backoffMs`: delay between retries in milliseconds. Default: 2000.
+ * - `backoffStrategy`: 'fixed' (constant delay) or 'exponential' (delay doubles
+ *   each retry). Default: 'fixed'.
+ */
+export interface WebhookRetryPolicy {
+  /** Total attempts (including the first). Default 2. */
+  maxAttempts?: number;
+  /** Delay between retries in ms. Default 2000. */
+  backoffMs?: number;
+  /** 'fixed' or 'exponential'. Default 'fixed'. */
+  backoffStrategy?: 'fixed' | 'exponential';
 }
 
 // ── v0.6: webhook event types ────────────────────────────────────────────────

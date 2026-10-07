@@ -5,6 +5,60 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2025-01-22
+
+### Added — configurable retry + webhook dashboard + npm-ready
+
+- **Configurable webhook retry policy** (`WebhookConfig.retry`):
+  - Per-webhook `WebhookRetryPolicy`: `{ maxAttempts?, backoffMs?, backoffStrategy? }`
+  - `maxAttempts`: total delivery attempts (default 2; 1 = no retry, 3 = two retries)
+  - `backoffMs`: delay between retries (default 2000ms)
+  - `backoffStrategy`: `'fixed'` (constant) or `'exponential'` (delay doubles each retry; default `'fixed'`)
+  - Different webhooks can have different policies
+  - Backward compatible: omit `retry` → v0.6/v0.7 behavior (2 attempts, 2s fixed delay)
+
+- **Webhook delivery dashboard endpoint** (`/api/webhooks`):
+  - `GET /api/webhooks?limit=100&runId=xxx` — recent delivery records + summary stats
+  - `DELETE /api/webhooks` — clear the delivery log
+  - Summary: `{ total, delivered, failed, skipped, signed }`
+  - Protected by the dashboard's Bearer auth (if `AUTONOMOUS_DASHBOARD_TOKEN` is set)
+
+- **npm publication readiness**:
+  - Package metadata finalized (author email, expanded keywords, 3 export paths)
+  - Name `goose-autonomous-sessions` confirmed available on npm
+  - `prepublishOnly` runs tests + typecheck before publish
+  - The `.github/workflows/publish.yml` workflow auto-publishes on `v*` tag when `NPM_TOKEN` is set
+
+- **v0.8 demo** (`examples/v0.8-demo.ts`):
+  - Demonstrates 3 webhooks with different retry policies (default, no-retry, exponential)
+  - Shows the delivery log capturing each policy's behavior
+
+- **10 new tests** (158 total):
+  - `tests/v0.8-integration.test.ts` — retry policy (6 tests: default, maxAttempts=1/3, custom backoffMs, exponential, per-webhook), delivery log shape (1), signPayload/verifySignature (3)
+
+### Changed
+
+- `src/autonomous/types.ts` — added `WebhookRetryPolicy` type, added `retry` field to `WebhookConfig`
+- `src/autonomous/webhooks.ts` — `deliverWithRetry` now reads the retry policy (maxAttempts, backoffMs, backoffStrategy); supports exponential backoff
+- `dashboard/server.ts` — added `/api/webhooks` GET + DELETE endpoint; imported `getDeliveryLog` + `clearDeliveryLog`
+- `package.json` — v0.8.0; expanded keywords; added `./webhooks` export path; added author email
+- `examples/` — added `v0.8-demo.ts`
+
+### Backward compatibility
+
+- v0.7 `WebhookConfig` without `retry` → uses default (2 attempts, 2s fixed)
+- All 148 v0.7 tests pass unchanged
+
+### Test suite
+
+- **158 tests, all passing** (148 from v0.7 + 10 new)
+- Ran in ~14.7s (slower due to retry backoff timeouts)
+
+### Intentionally not in v0.8
+
+- macOS / Windows support (Linux-first by user request)
+- Actual npm publication (requires `NPM_TOKEN` secret — workflow is ready)
+
 ## [0.7.0] — 2025-01-21
 
 ### Added — webhook security + filtering + observability

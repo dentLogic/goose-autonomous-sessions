@@ -20,6 +20,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
+import { getDeliveryLog, clearDeliveryLog } from '../src/autonomous/webhooks';
 
 // ─── config ───────────────────────────────────────────────────────────────────
 
@@ -498,6 +499,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // v0.8: webhook delivery log endpoint
+  // GET /api/webhooks?limit=100&runId=xxx — recent delivery records
+  // DELETE /api/webhooks — clear the delivery log
+  if (url.pathname === '/api/webhooks') {
+    if (req.method === 'DELETE') {
+      clearDeliveryLog();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ cleared: true }));
+      return;
+    }
+    const limit = Number(url.searchParams.get('limit') ?? '100');
+    const runId = url.searchParams.get('runId') ?? undefined;
+    const records = getDeliveryLog(limit, runId);
+    // summary stats
+    const summary = {
+      total: records.length,
+      delivered: records.filter((r) => r.result === 'delivered').length,
+      failed: records.filter((r) => r.result === 'failed').length,
+      skipped: records.filter((r) => r.result === 'skipped').length,
+      signed: records.filter((r) => r.signed).length,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ records, summary }));
+    return;
+  }
+
   if (url.pathname === '/api/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -525,7 +552,7 @@ server.listen(PORT, () => {
   console.log(`   dashboard:  http://localhost:${PORT}`);
   console.log(`   data dir:   ${DATA_DIR}`);
   console.log(`   auth:       ${AUTH_TOKEN ? 'enabled (Bearer token)' : 'disabled (set AUTONOMOUS_DASHBOARD_TOKEN)'}`);
-  console.log(`   endpoints:  /  /api/state  /api/metrics  /api/export  /api/health  /api/events`);
+  console.log(`   endpoints:  /  /api/state  /api/metrics  /api/export  /api/health  /api/webhooks  /api/events`);
   console.log(`   auto-refresh: 1s + SSE live updates`);
   console.log(`\n   Press Ctrl+C to stop.\n`);
 });

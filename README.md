@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.7](https://img.shields.io/badge/Status-v0.7-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 148 passing](https://img.shields.io/badge/Tests-148%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.8](https://img.shields.io/badge/Status-v0.8-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 158 passing](https://img.shields.io/badge/Tests-158%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -627,6 +627,54 @@ const recent = getDeliveryLog(50, runId);
 ```
 Capped at 500 records, newest first.
 
+### 🔁 Configurable retry policy (v0.8)
+
+Each webhook can customize its retry behavior:
+
+```ts
+webhooks: [
+  {
+    url: 'https://critical.com/hook',
+    retry: { maxAttempts: 5, backoffMs: 1000, backoffStrategy: 'exponential' },
+  },
+  {
+    url: 'https://best-effort.com/hook',
+    retry: { maxAttempts: 1 }, // no retry
+  },
+]
+```
+
+- `maxAttempts`: total delivery attempts (default 2; 1 = no retry, 5 = four retries)
+- `backoffMs`: delay between retries (default 2000ms)
+- `backoffStrategy`: `'fixed'` (constant) or `'exponential'` (delay doubles each retry)
+- Different webhooks can have different policies
+- Omit `retry` → v0.6/v0.7 default (2 attempts, 2s fixed)
+
+### 📡 Webhook dashboard endpoint (v0.8)
+
+Inspect webhook deliveries via the monitoring dashboard:
+
+```bash
+# GET — recent delivery records + summary stats
+curl http://localhost:7878/api/webhooks?limit=50
+
+# Filter by run
+curl http://localhost:7878/api/webhooks?runId=abc-123
+
+# DELETE — clear the delivery log
+curl -X DELETE http://localhost:7878/api/webhooks
+```
+
+Response:
+```json
+{
+  "records": [
+    { "url": "...", "event": "run.completed", "result": "delivered", "status": 200, "signed": true, "attempt": 1, ... }
+  ],
+  "summary": { "total": 42, "delivered": 38, "failed": 2, "skipped": 2, "signed": 42 }
+}
+```
+
 ---
 
 ## 🛡️ Crash recovery
@@ -801,7 +849,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.7 ships with **148 tests** covering the full spec:
+v0.8 ships with **158 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -815,13 +863,14 @@ v0.7 ships with **148 tests** covering the full spec:
 | `tests/v0.5-integration.test.ts` | 10 | cost-based rollover, cost accumulation, run resume (stop→resume→complete) |
 | `tests/v0.6-integration.test.ts` | 12 | cost run budget halts, webhook events (all 10 types), no-op when unconfigured |
 | `tests/v0.7-integration.test.ts` | 20 | HMAC sign/verify, event filtering, delivery log (skipped/failed/capped/by-runId) |
+| `tests/v0.8-integration.test.ts` | 10 | retry policy (default/maxAttempts/backoffMs/exponential/per-webhook), delivery log shape, sign helpers |
 
 ```bash
 $ bun test
-  148 pass
+  158 pass
   0 fail
-  339 expect() calls
-  Ran 148 tests across 10 files. [6.7s]
+  370 expect() calls
+  Ran 158 tests across 11 files. [14.7s]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -1029,11 +1078,18 @@ secrets never leak into the handoff artifact.
 - ✅ `WebhookConfig` structured type (string URLs still work — backward compatible)
 - ✅ 148-test suite (128 + 20 new)
 
-### v0.8+ — future
+### v0.8 — configurable retry + webhook dashboard + npm-ready ✅
 
-- ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
-- ⏳ Webhook delivery dashboard endpoint (`/api/webhooks` on the monitor)
-- ⏳ Configurable retry policy (attempts + backoff)
+- ✅ Configurable webhook retry policy (`WebhookConfig.retry` — maxAttempts, backoffMs, fixed/exponential)
+- ✅ Webhook delivery dashboard endpoint (`/api/webhooks` GET + DELETE)
+- ✅ npm publication readiness (metadata finalized, name available, workflow ready)
+- ✅ 158-test suite (148 + 10 new)
+
+### v0.9+ — future
+
+- ⏳ npm package publication (add `NPM_TOKEN` secret → auto-publish on tag)
+- ⏳ Webhook delivery retries with jitter (randomized backoff to avoid thundering herd)
+- ⏳ Webhook event replay (re-deliver failed events from the log)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

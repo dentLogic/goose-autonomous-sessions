@@ -1,9 +1,9 @@
 {
   "name": "goose-autonomous-sessions",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Global autonomous-session controller for Goose Desktop — unlimited context rollover via structured state handoffs, with independent verification. Local-only, no cloud.",
   "license": "MIT",
-  "author": "dentLogic",
+  "author": "dentLogic <dentLogic@users.noreply.github.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/dentLogic/goose-autonomous-sessions.git"
@@ -24,13 +24,17 @@
     "electron",
     "desktop",
     "local-first",
-    "long-running-tasks"
+    "long-running-tasks",
+    "webhooks",
+    "state-machine",
+    "crash-recovery"
   ],
   "type": "module",
   "main": "src/autonomous/index.ts",
   "exports": {
     ".": "./src/autonomous/index.ts",
-    "./types": "./src/autonomous/types.ts"
+    "./types": "./src/autonomous/types.ts",
+    "./webhooks": "./src/autonomous/webhooks.ts"
   },
   "scripts": {
     "demo": "bun examples/standalone-demo.ts",
@@ -42,7 +46,7 @@
     "prepack": "echo 'Verifying npm pack contents...' && npm pack --dry-run"
   },
   "engines": {
- "node": ">=18"
+    "node": ">=18"
   },
   "files": [
     "src/autonomous",
