@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.6](https://img.shields.io/badge/Status-v0.6-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 128 passing](https://img.shields.io/badge/Tests-128%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.7](https://img.shields.io/badge/Status-v0.7-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 148 passing](https://img.shields.io/badge/Tests-148%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -590,6 +590,43 @@ settings: {
 
 Fire-and-forget delivery (never blocks the state machine), retries once on failure, 5s timeout per attempt. Injectable via `ControllerDeps.webhookNotifier` for testing.
 
+### 🔐 Webhook HMAC signing + filtering (v0.7)
+
+v0.7 upgrades webhooks with security + precision:
+
+**HMAC-SHA256 signing** — verify payloads are authentic:
+```ts
+webhooks: [
+  { url: 'https://your-server.com/hook', secret: 's3cret' },
+]
+```
+Each signed delivery includes `X-Goose-Autonomous-Signature: sha256=<hex>`. Receivers verify:
+```ts
+import { verifySignature } from 'goose-autonomous-sessions';
+const body = await req.text();
+const sig = req.headers.get('X-Goose-Autonomous-Signature');
+if (!verifySignature('s3cret', body, sig)) {
+  return res.status(401).json({ error: 'Invalid signature' });
+}
+```
+
+**Per-event filtering** — only receive the events you care about:
+```ts
+webhooks: [
+  { url: 'https://slack.com/...', events: ['run.completed', 'run.failed', 'budget.exhausted'] },
+  { url: 'https://monitor.com/...', events: ['rollover.completed'] },
+  'https://simple.com/all', // string form still works — receives ALL events
+]
+```
+
+**Delivery log** — debug "did the webhook fire?":
+```ts
+import { getDeliveryLog } from 'goose-autonomous-sessions';
+const recent = getDeliveryLog(50, runId);
+// [{ url, event, result: 'delivered'|'failed'|'skipped', status, error, signed, attempt }, ...]
+```
+Capped at 500 records, newest first.
+
 ---
 
 ## 🛡️ Crash recovery
@@ -764,7 +801,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.6 ships with **128 tests** covering the full spec:
+v0.7 ships with **148 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -777,13 +814,14 @@ v0.6 ships with **128 tests** covering the full spec:
 | `tests/v0.4-integration.test.ts` | 9 | controller integration: budget halts, turn-based rollover, per-session resets |
 | `tests/v0.5-integration.test.ts` | 10 | cost-based rollover, cost accumulation, run resume (stop→resume→complete) |
 | `tests/v0.6-integration.test.ts` | 12 | cost run budget halts, webhook events (all 10 types), no-op when unconfigured |
+| `tests/v0.7-integration.test.ts` | 20 | HMAC sign/verify, event filtering, delivery log (skipped/failed/capped/by-runId) |
 
 ```bash
 $ bun test
-  128 pass
+  148 pass
   0 fail
-  297 expect() calls
-  Ran 128 tests across 9 files. [236ms]
+  339 expect() calls
+  Ran 148 tests across 10 files. [6.7s]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -983,11 +1021,19 @@ secrets never leak into the handoff artifact.
 - ✅ Webhook notifications — 10 event types, fire-and-forget POST delivery, injectable notifier
 - ✅ 128-test suite (116 + 12 new)
 
-### v0.7+ — future
+### v0.7 — webhook security + filtering + observability ✅
+
+- ✅ HMAC-SHA256 payload signing (`WebhookConfig.secret` + `verifySignature()` helper)
+- ✅ Per-event webhook filtering (`WebhookConfig.events` allowlist)
+- ✅ Webhook delivery log (`getDeliveryLog()`, `clearDeliveryLog()`, capped at 500)
+- ✅ `WebhookConfig` structured type (string URLs still work — backward compatible)
+- ✅ 148-test suite (128 + 20 new)
+
+### v0.8+ — future
 
 - ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
-- ⏳ Webhook signature verification (HMAC)
-- ⏳ Per-event webhook filtering (subscribe to specific events only)
+- ⏳ Webhook delivery dashboard endpoint (`/api/webhooks` on the monitor)
+- ⏳ Configurable retry policy (attempts + backoff)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

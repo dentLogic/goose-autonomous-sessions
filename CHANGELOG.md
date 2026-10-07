@@ -5,6 +5,67 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2025-01-21
+
+### Added — webhook security + filtering + observability
+
+- **HMAC-SHA256 payload signing** (`WebhookConfig.secret`):
+  - When a webhook has a `secret`, every delivery is signed
+  - Signature sent in the `X-Goose-Autonomous-Signature: sha256=<hex>` header
+  - Receivers verify with the exported `verifySignature(secret, body, signature)` helper
+  - Uses timing-safe comparison to prevent timing attacks
+  - `signPayload(secret, body)` also exported for testing/custom use
+
+- **Per-event webhook filtering** (`WebhookConfig.events`):
+  - Each webhook can specify an allowlist of event types
+  - Events not in the list are skipped (recorded as `skipped` in the delivery log)
+  - Omit `events` to receive ALL events (backward compatible)
+
+- **Webhook delivery log**:
+  - Every delivery attempt is recorded (delivered / failed / skipped)
+  - `getDeliveryLog(limit?, runId?)` — query the log (newest first)
+  - `clearDeliveryLog()` — reset (for tests)
+  - Capped at 500 records (most recent kept)
+  - Each record: `{ id, url, event, runId, attemptedAt, status?, result, error?, signed, attempt }`
+  - Available on the `WebhookDeliveryRecord` type
+
+- **WebhookConfig type** — replaces plain string URLs with structured config:
+  ```ts
+  webhooks: [
+    { url: 'https://slack.com/...', events: ['run.completed', 'run.failed'], secret: 's3cret' },
+    { url: 'https://monitor.com/...', events: ['budget.exhausted'] },
+    'https://simple.com/all-events', // backward-compat string form still works
+  ]
+  ```
+
+- **v0.7 demo** (`examples/v0.7-demo.ts`):
+  - Demonstrates HMAC sign + verify, event filtering, delivery log inspection
+  - Shows receiver-side signature verification
+
+- **20 new tests** (148 total):
+  - `tests/v0.7-integration.test.ts` — normalizeWebhooks (3), HMAC signing (7), event filtering (4), delivery log (6)
+
+### Changed
+
+- `src/autonomous/types.ts` — `webhooks` field now accepts `string[] | WebhookConfig[]`; added `WebhookConfig`, `WebhookDeliveryRecord` types
+- `src/autonomous/webhooks.ts` — rewrote to support HMAC signing, event filtering, delivery log; exported `signPayload`, `verifySignature`, `normalizeWebhooks`, `getDeliveryLog`, `clearDeliveryLog`
+- `examples/` — added `v0.7-demo.ts`
+
+### Backward compatibility
+
+- v0.6 `webhooks: string[]` still works (normalized to `WebhookConfig[]` with no events filter + no secret)
+- All 128 v0.6 tests pass unchanged
+
+### Test suite
+
+- **148 tests, all passing** (128 from v0.6 + 20 new)
+- Ran in ~6.7s (slower due to webhook retry timeouts)
+
+### Intentionally not in v0.7
+
+- macOS / Windows support (Linux-first by user request)
+- npm package publication (workflow ready — add `NPM_TOKEN` secret)
+
 ## [0.6.0] — 2025-01-20
 
 ### Added — cost budget + webhooks

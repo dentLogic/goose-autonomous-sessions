@@ -146,11 +146,33 @@ export interface AutonomousSettings {
    */
   maxTotalCostCents?: number;
   /**
-   * Webhook URLs to notify on run events (completion, failure, rollover,
-   * verification). Each URL receives a POST with the event payload.
-   * The controller delivers asynchronously + retries once on failure.
+   * v0.6: Webhook URLs to notify on run events.
+   * v0.7: can be either string[] (backward compat — all events, no signature)
+   * OR WebhookConfig[] (with per-webhook event filtering + HMAC secret).
    */
-  webhooks?: string[];
+  webhooks?: string[] | WebhookConfig[];
+}
+
+// ── v0.7: webhook configuration ───────────────────────────────────────────────
+
+/**
+ * A single webhook destination with optional event filtering + HMAC signing.
+ *
+ * - `url`: the endpoint to POST to
+ * - `events`: optional allowlist of event types. If omitted, ALL events are sent.
+ * - `secret`: if set, the payload is HMAC-SHA256 signed and the signature is
+ *   sent in the `X-Goose-Autonomous-Signature` header. Receivers verify with:
+ *     `crypto.timingSafeEqual(signature, hmacSha256(secret, body))`
+ */
+export interface WebhookConfig {
+  url: string;
+  /** Optional: only deliver these event types. Omit for ALL events. */
+  events?: WebhookEvent[];
+  /**
+   * Optional: HMAC-SHA256 secret for payload signing. When set, the delivery
+   * includes an `X-Goose-Autonomous-Signature: sha256=<hex>` header.
+   */
+  secret?: string;
 }
 
 // ── v0.6: webhook event types ────────────────────────────────────────────────
@@ -184,6 +206,34 @@ export interface WebhookPayload {
   };
   /** Event-specific details (e.g., rollover reason, verifier findings). */
   details?: Record<string, unknown>;
+}
+
+// ── v0.7: webhook delivery log ──────────────────────────────────────────────
+
+/**
+ * A record of a single webhook delivery attempt. Stored in-memory (capped)
+ * for debugging — "did the webhook fire? did it succeed?".
+ */
+export interface WebhookDeliveryRecord {
+  id: string;
+  /** The webhook URL the delivery was attempted to. */
+  url: string;
+  /** The event type being delivered. */
+  event: WebhookEvent;
+  /** The runId the event is about. */
+  runId: string;
+  /** When the delivery attempt started. */
+  attemptedAt: string;
+  /** HTTP status code returned (undefined if network failure). */
+  status?: number;
+  /** 'delivered' | 'failed' | 'skipped' (skipped = filtered out by events). */
+  result: 'delivered' | 'failed' | 'skipped';
+  /** Error message on failure. */
+  error?: string;
+  /** Whether the payload was HMAC-signed. */
+  signed: boolean;
+  /** Attempt number (1 = first try, 2 = retry). */
+  attempt: number;
 }
 
 export interface AutonomousOperation {
