@@ -1,6 +1,6 @@
 {
   "name": "goose-autonomous-sessions",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Global autonomous-session controller for Goose Desktop — unlimited context rollover via structured state handoffs, with independent verification. Local-only, no cloud.",
   "license": "MIT",
   "author": "dentLogic <dentLogic@users.noreply.github.com>",

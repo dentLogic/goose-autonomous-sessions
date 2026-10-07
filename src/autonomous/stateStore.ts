@@ -1,15 +1,35 @@
-// src/lib/autonomous/stateStore.ts
+// src/autonomous/stateStore.ts
 // Spec sections 7, 8, 9, 10, 11, 33, 37, 40, 62.
 // Atomic persistence through Prisma transactions. In Goose Desktop this layer
 // would be the Electron main process; here it is the Next.js server.
-import { db } from '@/lib/db';
+//
+// NOTE: The Prisma client is imported LAZILY so this module loads without
+// Prisma installed. The portable core (controller, types, handoff, etc.) has
+// zero hard deps. This file is a reference adapter — only use it in hosts
+// that have Prisma configured.
 import { AUTONOMOUS_SCHEMA_VERSION, DEFAULT_SETTINGS } from './constants';
 import type { AutonomousRun, AutonomousSettings, SessionRecord, StateStoreAdapter } from './types';
+
+/** Lazy Prisma loader — throws if Prisma isn't configured. */
+async function getDb(): Promise<any> {
+  try {
+    // Dynamic import so the module loads even without @/lib/db
+    const mod = await import('@/lib/db');
+    return mod.db;
+  } catch {
+    throw new Error(
+      'Prisma is not configured. This stateStore is a reference adapter — ' +
+      'use it only in hosts with Prisma. For standalone use, inject your own ' +
+      'StateStoreAdapter (see examples/in-memory-adapters.ts).'
+    );
+  }
+}
 
 const RUN_KEY = 'active';
 const SETTINGS_KEY = 'global';
 
 export async function getRun(): Promise<AutonomousRun | null> {
+  const db = await getDb();
   const row = await db.autonomousRunRow.findUnique({ where: { key: RUN_KEY } });
   if (!row) return null;
   try {
@@ -26,6 +46,7 @@ export async function getRun(): Promise<AutonomousRun | null> {
 export async function saveRun(run: AutonomousRun): Promise<void> {
   const data = JSON.stringify(run);
   // upsert = atomic single-row write
+  const db = await getDb();
   await db.autonomousRunRow.upsert({
     where: { key: RUN_KEY },
     create: { key: RUN_KEY, data },
@@ -34,10 +55,12 @@ export async function saveRun(run: AutonomousRun): Promise<void> {
 }
 
 export async function clearRun(): Promise<void> {
+  const db = await getDb();
   await db.autonomousRunRow.deleteMany({ where: { key: RUN_KEY } });
 }
 
 export async function getSettings(): Promise<AutonomousSettings> {
+  const db = await getDb();
   const row = await db.autonomousSettingsRow.findUnique({
     where: { key: SETTINGS_KEY },
   });
@@ -46,6 +69,7 @@ export async function getSettings(): Promise<AutonomousSettings> {
 }
 
 export async function saveSettings(s: AutonomousSettings): Promise<void> {
+  const db = await getDb();
   await db.autonomousSettingsRow.upsert({
     where: { key: SETTINGS_KEY },
     create: { key: SETTINGS_KEY, enabled: s.enabled, threshold: s.rolloverThreshold },
@@ -64,6 +88,7 @@ export async function recordSession(input: {
   objective: string;
   handoffJson?: string;
 }): Promise<void> {
+  const db = await getDb();
   await db.autonomousSessionRow.create({
     data: {
       sessionId: input.sessionId,
@@ -83,6 +108,7 @@ export async function updateSessionStatus(
   sessionId: string,
   status: 'active' | 'completed' | 'failed' | 'abandoned'
 ): Promise<void> {
+  const db = await getDb();
   await db.autonomousSessionRow.updateMany({
     where: { sessionId },
     data: { status },
@@ -90,6 +116,7 @@ export async function updateSessionStatus(
 }
 
 export async function getSessions(runId?: string): Promise<SessionRecord[]> {
+  const db = await getDb();
   const rows = await db.autonomousSessionRow.findMany({
     where: runId ? { runId } : undefined,
     orderBy: { createdAt: 'asc' },
@@ -110,6 +137,7 @@ export async function getSessions(runId?: string): Promise<SessionRecord[]> {
 }
 
 export async function clearSessions(runId?: string): Promise<void> {
+  const db = await getDb();
   await db.autonomousSessionRow.deleteMany({
     where: runId ? { runId } : undefined,
   });

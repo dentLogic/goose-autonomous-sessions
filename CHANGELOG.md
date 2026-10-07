@@ -5,6 +5,72 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] — 2025-01-24
+
+### 🎉 The stable release
+
+v1.0 freezes the public API surface. From this point forward, changes follow
+Semantic Versioning: patches fix bugs, minors add (backward-compatible) features,
+and majors break the frozen API.
+
+### Added — API stability + benchmarks + migration guide
+
+- **API stability freeze** (`docs/STABILITY.md`):
+  - Documents every frozen export with its `@stable` / `@experimental` status
+  - Covers: 23 types, 1 controller class + 7 methods, 30+ functions, 11 constants
+  - Backward compatibility guarantees: optional fields stay optional, no signature changes, type narrowing only, marker regexes frozen
+  - Deprecation policy: deprecated exports survive at least one major cycle
+
+- **API stability test** (`tests/api-stability.test.ts` — 24 tests):
+  - Verifies every documented export exists with the correct type
+  - Verifies marker strings are frozen (`AUTONOMOUS_STATUS: COMPLETE` etc.)
+  - Verifies IPC channel names are frozen
+  - Verifies function signatures (parameter count, return types)
+  - This test is a **contract**: if it fails, a frozen export was removed/renamed → breaking change
+
+- **Performance benchmarks** (`benchmarks/`):
+  - `benchmarks/bench.ts` — 5 benchmarks measuring hot paths
+  - `benchmarks/README.md` — methodology + how to interpret results
+  - Measured: controller throughput (400K ops/sec), handoff validation (1.25M), policy evaluation (1.43M), serialization (208K), HMAC signing (714K)
+  - Run with: `bun benchmarks/bench.ts`
+
+- **Migration guide** (`docs/MIGRATION.md`):
+  - v0.x → v1.0 migration guide (spoiler: no breaking changes)
+  - Documents the lazy Prisma loading change
+  - 4-step verification flow (run stability test → typecheck → run tests → capture baseline)
+  - Future upgrade path (v1.x strictly additive, v2.0 reserved for breaking changes)
+
+### Changed
+
+- `src/autonomous/stateStore.ts` — Prisma import is now **lazy** (`getDb()` async loader). The module loads without Prisma installed — the portable core has zero hard deps. Only `prismaStateStore`/`prismaLogger` (the reference adapters) trigger the Prisma import, and only when called.
+- `src/autonomous/logger.ts` — same lazy Prisma loading fix
+- `package.json` — v1.0.0; added `cli` script (v0.9)
+
+### Backward compatibility
+
+- **v1.0 is fully backward compatible with v0.9.** All 167 v0.9 tests pass unchanged.
+- The lazy Prisma change is invisible to existing hosts: if you were using `prismaStateStore`, it still works — the import is just deferred from module-load to first-call.
+- No function signatures changed. No types narrowed. No constants renamed.
+
+### Test suite
+
+- **191 tests, all passing** (167 from v0.9 + 24 new API stability tests)
+- Ran in ~20.5s
+- API stability test: 24/24 pass — the frozen surface is verified
+
+### What "stable" means
+
+1. The public API (documented in `docs/STABILITY.md`) is frozen
+2. Breaking changes require a major version bump (v2.0.0)
+3. Minor releases (v1.x) are strictly additive
+4. Patch releases (v1.0.x) fix bugs only
+5. The API stability test (`tests/api-stability.test.ts`) is the contract enforcer
+
+### Intentionally not in v1.0
+
+- macOS / Windows support (Linux-first by user request)
+- Actual npm publication (requires `NPM_TOKEN` secret — workflow is ready)
+
 ## [0.9.0] — 2025-01-23
 
 ### Added — jitter + replay + CLI

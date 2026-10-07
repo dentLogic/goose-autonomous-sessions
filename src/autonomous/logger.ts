@@ -1,8 +1,24 @@
-// src/lib/autonomous/logger.ts
+// src/autonomous/logger.ts
 // Spec sections 31, 45, 46. Compact local event log with rotation.
-import { db } from '@/lib/db';
+//
+// NOTE: The Prisma client is imported LAZILY so this module loads without
+// Prisma installed. Use prismaLogger only in hosts with Prisma configured.
 import { MAX_LOG_ROWS } from './constants';
 import type { LogEntry, LoggerAdapter } from './types';
+
+/** Lazy Prisma loader — throws if Prisma isn't configured. */
+async function getDb(): Promise<any> {
+  try {
+    const mod = await import('@/lib/db');
+    return mod.db;
+  } catch {
+    throw new Error(
+      'Prisma is not configured. This logger is a reference adapter — ' +
+      'use it only in hosts with Prisma. For standalone use, inject your own ' +
+      'LoggerAdapter (see examples/in-memory-adapters.ts).'
+    );
+  }
+}
 
 export async function appendLog(
   level: LogEntry['level'],
@@ -10,6 +26,7 @@ export async function appendLog(
   runId?: string
 ): Promise<void> {
   try {
+    const db = await getDb();
     await db.autonomousLogRow.create({
       data: { level, message, runId },
     });
@@ -30,7 +47,9 @@ export async function appendLog(
     }
   } catch (e) {
     // logging must never break the controller
-    console.error('[autonomous.logger] failed to append log', e);
+    if (!(e instanceof Error && e.message.includes('Prisma is not configured'))) {
+      console.error('[autonomous.logger] failed to append log', e);
+    }
   }
 }
 
@@ -49,6 +68,7 @@ export const prismaLogger: LoggerAdapter = {
 };
 
 export async function getLogs(limit = 200, runId?: string): Promise<LogEntry[]> {
+  const db = await getDb();
   const rows = await db.autonomousLogRow.findMany({
     where: runId ? { runId } : undefined,
     orderBy: { ts: 'desc' },
@@ -64,5 +84,6 @@ export async function getLogs(limit = 200, runId?: string): Promise<LogEntry[]> 
 }
 
 export async function clearLogs(): Promise<void> {
+  const db = await getDb();
   await db.autonomousLogRow.deleteMany({});
 }
