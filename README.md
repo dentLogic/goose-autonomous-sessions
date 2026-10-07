@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.3](https://img.shields.io/badge/Status-v0.3-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 68 passing](https://img.shields.io/badge/Tests-68%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.4](https://img.shields.io/badge/Status-v0.4-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 99 passing](https://img.shields.io/badge/Tests-99%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -457,6 +457,40 @@ The controller now:
 
 If no `handoffSchema` is provided, the default 9-field schema is used — fully backward compatible with v0.1/v0.2.
 
+### ⏱️ Configurable rollover policy (v0.4)
+
+v0.1–v0.3 only rolled over on context %. v0.4 adds **turn-count** and **time-based** policies, composable with OR semantics:
+
+```ts
+const controller = new AutonomousSessionController({
+  store, logger, generateHandoffResponse, sendPrompt,
+  settings: {
+    enabled: true,
+    rolloverThreshold: 0.75,   // legacy field, still works
+    rolloverPolicy: {
+      contextPercent: 0.75,       // roll over at 75% context
+      maxTurnsPerSession: 10,      // OR after 10 turns
+      maxMinutesPerSession: 30,    // OR after 30 minutes
+    },
+    maxVerificationAttempts: 3,    // halt after 3 failed verifications
+  },
+});
+```
+
+Any policy tripping marks rollover pending. Priority order when multiple trip: `context > turns > time`.
+
+### 🛑 Verification budget (v0.4)
+
+A safety valve against infinite `verify→fail→worker→verify` loops. When `maxVerificationAttempts` is set and the budget is exhausted, the run enters a controlled `error` state instead of looping forever:
+
+```
+worker 1 → COMPLETE → verifier 1 → FAIL
+worker 2 → COMPLETE → verifier 2 → FAIL
+worker 3 → COMPLETE → ❌ Verification budget exhausted (2/2). Run halted.
+```
+
+`0` / `undefined` = unlimited (v0.1–v0.3 behavior — backward compatible).
+
 ---
 
 ## 🛡️ Crash recovery
@@ -631,7 +665,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.3 ships with **68 tests** covering the full spec:
+v0.4 ships with **99 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -640,13 +674,15 @@ v0.3 ships with **68 tests** covering the full spec:
 | `tests/completion-detection.test.ts` | 10 | exact-line marker matching, malformed markers, natural-language rejection |
 | `tests/recovery.test.ts` | 11 | the full spec-36 decision tree (9 phases + edge cases) |
 | `tests/handoff-schema.test.ts` | 22 | custom schema extension, field override, schema-aware prompt/validate/serialize/parse |
+| `tests/rollover-policy.test.ts` | 22 | pure-function tests: context/turns/time policies, OR semantics, budget |
+| `tests/v0.4-integration.test.ts` | 9 | controller integration: budget halts, turn-based rollover, per-session resets |
 
 ```bash
 $ bun test
-  68 pass
+  99 pass
   0 fail
-  143 expect() calls
-  Ran 68 tests across 5 files. [38.00ms]
+  211 expect() calls
+  Ran 99 tests across 7 files. [43.00ms]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -825,12 +861,19 @@ secrets never leak into the handoff artifact.
 - ✅ npm publish workflow (`.github/workflows/publish.yml`) — ready when `NPM_TOKEN` is set
 - ✅ 68-test suite (46 from v0.2 + 22 new schema tests)
 
-### v0.4+ — future
+### v0.4 — safety valves + rollover policies + npm readiness ✅
 
-- ⏳ Verification retry budget (opt-in max verification attempts)
+- ✅ Verification retry budget (`maxVerificationAttempts`) — halts infinite verify→fail loops
+- ✅ Configurable rollover policy (`rolloverPolicy`) — context % + maxTurns + maxMinutes, OR semantics
+- ✅ `ControllerDeps.settings` override — change policy/budget mid-run
+- ✅ npm publication readiness (`.npmignore`, `prepublishOnly`, tightened `files` field)
+- ✅ 99-test suite (68 + 31 new)
+
+### v0.5+ — future
+
 - ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
 - ⏳ Web dashboard with auth (current monitor is local-only, read-only)
-- ⏳ Configurable rollover policy (e.g., time-based, not just context %)
+- ⏳ Configurable rollover policy: time-based already in v0.4; explore cost-based (token $)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

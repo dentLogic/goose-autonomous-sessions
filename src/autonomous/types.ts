@@ -71,11 +71,57 @@ export interface AutonomousRun {
   lastError?: string;
   createdAt: string;
   updatedAt: string;
+  // ── v0.4: multi-policy rollover tracking ────────────────────────────────
+  /** Number of completed worker turns in the CURRENT session. Resets on rollover. */
+  turnsInCurrentSession?: number;
+  /** ISO timestamp when the current session became active. Resets on rollover. */
+  currentSessionStartedAt?: string;
+  /** Why rollover is pending (which policy tripped). Cleared after rollover. */
+  rolloverReason?: RolloverReason;
+}
+
+// ── v0.4: configurable rollover policy ────────────────────────────────────────
+//
+// v0.1–v0.3 supported only context-percentage rollover. v0.4 adds optional
+// turn-count and time-based policies. All enabled policies are combined with
+// OR semantics — any one tripping marks rollover pending.
+//
+// A policy field is "enabled" when it is a positive number. Zero / undefined
+// means the policy is disabled.
+
+export type RolloverReason = 'context' | 'turns' | 'time';
+
+export interface RolloverPolicy {
+  /**
+   * Context ratio at which rollover is marked pending.
+   * 0..1. Default 0.75. Set to 0 to disable context-based rollover.
+   * (This is the v0.1–v0.3 behavior, preserved as `rolloverThreshold` on
+   * AutonomousSettings for backward compatibility.)
+   */
+  contextPercent?: number;
+  /** Max worker turns per session before rollover. 0/undefined = disabled. */
+  maxTurnsPerSession?: number;
+  /** Max minutes per session before rollover. 0/undefined = disabled. */
+  maxMinutesPerSession?: number;
 }
 
 export interface AutonomousSettings {
   enabled: boolean;
-  rolloverThreshold: number; // 0..1, default 0.75
+  rolloverThreshold: number; // 0..1, default 0.75 (v0.1–v0.3, preserved)
+  // ── v0.4 ────────────────────────────────────────────────────────────────
+  /**
+   * Maximum verification attempts before the run enters an error state.
+   * 0/undefined = unlimited (v0.1–v0.3 behavior).
+   * A safety valve against infinite verify→fail→worker loops.
+   */
+  maxVerificationAttempts?: number;
+  /**
+   * Multi-policy rollover. The `contextPercent` here overrides
+   * `rolloverThreshold` if both are set (this is the v0.4 canonical field).
+   * For backward compat, if `rolloverPolicy` is omitted, the controller uses
+   * `rolloverThreshold` for context-based rollover only.
+   */
+  rolloverPolicy?: RolloverPolicy;
 }
 
 export interface AutonomousOperation {

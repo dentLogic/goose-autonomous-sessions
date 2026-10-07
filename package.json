@@ -1,6 +1,6 @@
 {
   "name": "goose-autonomous-sessions",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Global autonomous-session controller for Goose Desktop — unlimited context rollover via structured state handoffs, with independent verification. Local-only, no cloud.",
   "license": "MIT",
   "author": "dentLogic",
@@ -37,7 +37,9 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/autonomous examples tests",
-    "dashboard": "bun dashboard/server.ts"
+    "dashboard": "bun dashboard/server.ts",
+    "prepublishOnly": "bun test && tsc --noEmit",
+    "prepack": "echo 'Verifying npm pack contents...' && npm pack --dry-run"
   },
   "engines": {
  "node": ">=18"
@@ -45,9 +47,7 @@
   "files": [
     "src/autonomous",
     "examples",
-    "docs",
-    "install.sh",
-    "uninstall.sh",
+    "adapters",
     "README.md",
     "LICENSE"
   ]

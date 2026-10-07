@@ -5,6 +5,62 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2025-01-18
+
+### Added — safety valves + rollover policies + npm readiness
+
+- **Verification retry budget** (`AutonomousSettings.maxVerificationAttempts`):
+  - Optional max on verification attempts. When the budget is exhausted, the run enters a controlled `error` state instead of looping forever.
+  - `0` / `undefined` = unlimited (v0.1–v0.3 behavior — backward compatible).
+  - Enforced in `handleWorkerComplete` BEFORE generating a final handoff (so a budget-exhausted run doesn't waste an LLM call).
+  - `verificationBudgetExceeded()` exposed from `rollover-policy.ts` for testing.
+
+- **Configurable rollover policy** (`AutonomousSettings.rolloverPolicy`):
+  - `RolloverPolicy` type with three optional fields, combined with OR semantics:
+    - `contextPercent` (0..1) — the v0.1–v0.3 behavior, now composable
+    - `maxTurnsPerSession` — roll over after N worker turns (regardless of context %)
+    - `maxMinutesPerSession` — roll over after N minutes (time-based)
+  - `rollover-policy.ts` module with pure functions: `resolvePolicy()`, `evaluateRollover()`, `verificationBudgetExceeded()`
+  - Priority order when multiple trip: context > turns > time
+  - The controller tracks `turnsInCurrentSession` + `currentSessionStartedAt` + `rolloverReason` on the run record
+  - Backward compatible: if `rolloverPolicy` is omitted, the controller uses the legacy `rolloverThreshold` for context-only rollover
+
+- **`ControllerDeps.settings` override** (v0.4):
+  - Hosts can now inject settings via `ControllerDeps.settings` that override the run-time settings
+  - Useful for changing the rollover policy or verification budget mid-run without restarting
+
+- **npm publication readiness**:
+  - `.npmignore` — excludes tests, CI, dashboard, patches, docs from the npm tarball
+  - `package.json` `files` field tightened to ship only `src/autonomous/`, `examples/`, `adapters/`, README, LICENSE
+  - `prepublishOnly` script — runs tests + typecheck before npm publish
+  - `prepack` script — verifies npm pack contents
+
+- **v0.4 demo** (`examples/v0.4-demo.ts`):
+  - Demonstrates turn-based rollover (every 2 turns) + verification budget (max 2)
+  - Shows the run halting cleanly when the budget is exhausted
+
+- **31 new tests** (99 total):
+  - `tests/rollover-policy.test.ts` (22 tests) — pure-function tests for `resolvePolicy`, `evaluateRollover` (context/turns/time/combined), `verificationBudgetExceeded`
+  - `tests/v0.4-integration.test.ts` (9 tests) — controller integration: budget halts, turn-based rollover, per-session tracking resets
+
+### Changed
+
+- `src/autonomous/types.ts` — added `RolloverPolicy`, `RolloverReason`, extended `AutonomousRun` (turns/time tracking) + `AutonomousSettings` (budget + policy)
+- `src/autonomous/controller.ts` — `onContextUsage` + `onTurnFinished` now evaluate the full policy; `handleWorkerComplete` enforces the budget; per-session tracking resets on every rollover
+- `src/autonomous/index.ts` — exports the new `rollover-policy` module
+- `package.json` — v0.4.0; added `prepublishOnly` + `prepack` scripts
+- `examples/` — added `v0.4-demo.ts`
+
+### Test suite
+
+- **99 tests, all passing** (68 from v0.3 + 31 new)
+- Ran in ~43ms
+
+### Intentionally not in v0.4
+
+- macOS / Windows support (Linux-first by user request)
+- Web dashboard with auth (the monitor is local-only, read-only)
+
 ## [0.3.0] — 2025-01-17
 
 ### Added — configurability + observability + CI

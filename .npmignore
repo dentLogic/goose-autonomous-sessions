@@ -1,0 +1,63 @@
+# .npmignore — controls what gets published to npm
+#
+# The package ships ONLY the portable autonomous module + adapters + examples +
+# docs. Goose Desktop source, tests, CI, and patch artifacts stay local.
+
+# goose source (never publish — patched by the host)
+goose/
+ui/
+
+# tests
+tests/
+**/*.test.ts
+**/*.test.tsx
+**/__tests__/
+
+# CI / GitHub
+.github/
+.gitlab-ci.yml
+
+# dev tooling
+.eslintrc*
+.eslintignore
+.prettierrc*
+.editorconfig
+.vscode/
+.idea/
+
+# build artifacts
+dist/
+build/
+*.tsbuildinfo
+.next/
+
+# databases
+*.db
+*.db-journal
+
+# env / secrets
+.env
+.env.*
+
+# editor / os
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# logs
+*.log
+
+# the dashboard is a dev companion, not part of the npm package
+dashboard/
+
+# patches are applied by install.sh against a host's Goose source —
+# they don't belong in the npm tarball
+patches/
+install.sh
+uninstall.sh
+
+# docs are in the repo; npm users get the README
+docs/
+CONTRIBUTING.md
+CHANGELOG.md

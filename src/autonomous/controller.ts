@@ -9,7 +9,6 @@
 //   - a standalone script (in-memory adapters — see examples/)
 import { randomUUID } from 'crypto';
 import { AUTONOMOUS_SCHEMA_VERSION, DEFAULT_CONTEXT_LIMIT } from './constants';
-import { shouldMarkRolloverPending } from './contextMonitor';
 import { detectVerificationStatus, detectWorkerStatus } from './completionDetector';
 import {
   buildHandoffPrompt,
@@ -28,6 +27,11 @@ import {
   type HandoffSchema,
 } from './handoff-schema';
 import { navigateToSession } from './navigation';
+import {
+  evaluateRollover,
+  resolvePolicy,
+  verificationBudgetExceeded,
+} from './rollover-policy';
 import { createFreshSession, formatSessionName } from './sessionManager';
 import type {
   AgentTurn,
@@ -35,6 +39,7 @@ import type {
   AutonomousSettings,
   Handoff,
   LoggerAdapter,
+  RolloverReason,
   StateStoreAdapter,
 } from './types';
 
@@ -67,6 +72,13 @@ export interface ControllerDeps {
    * schema is used (backward compatible with v0.1/v0.2).
    */
   handoffSchema?: HandoffSchema;
+  /**
+   * Optional settings override (v0.4). When set, the controller uses these
+   * settings (verification budget + rollover policy) instead of the settings
+   * supplied at startRun time. Useful for hosts that want to change settings
+   * mid-run without restarting.
+   */
+  settings?: AutonomousSettings;
 }
 
 const nowISO = () => new Date().toISOString();
@@ -92,6 +104,10 @@ function freshRun(input: {
     verificationAttempt: 0,
     createdAt: ts,
     updatedAt: ts,
+    // v0.4: multi-policy rollover tracking
+    turnsInCurrentSession: 0,
+    currentSessionStartedAt: ts,
+    rolloverReason: undefined,
   };
 }
 
@@ -110,6 +126,11 @@ export class AutonomousSessionController {
     this.store = deps.store;
     this.logger = deps.logger;
     this.handoffSchema = deps.handoffSchema ?? defaultHandoffSchema();
+  }
+
+  /** v0.4: resolve the effective settings (deps.settings override > run-time settings). */
+  private effectiveSettings(runSettings: AutonomousSettings): AutonomousSettings {
+    return this.deps.settings ?? runSettings;
   }
 
   async startRun(input: {
@@ -181,6 +202,11 @@ export class AutonomousSessionController {
   /**
    * Spec 18: context notification arrives. Verify session ownership + active
    * run, store usage, mark rollover pending — but DO NOT create a session here.
+   *
+   * v0.4: evaluates the full rollover policy (context %, turns, time), not just
+   * the legacy context threshold. The context policy is the only one that can
+   * trip here (turns + time are checked at turn-finish), but we still record
+   * the reason so the controller knows why rollover is pending.
    */
   async onContextUsage(
     sessionId: string,
@@ -192,13 +218,29 @@ export class AutonomousSessionController {
     if (sessionId !== run.currentSessionId) return run;
     run.contextUsage = used;
     run.contextLimit = limit;
-    // Spec 48: only the first crossing flips the flag.
-    if (!run.rolloverPending && shouldMarkRolloverPending(used, limit, run.rolloverThreshold)) {
-      run.rolloverPending = true;
-      await this.logger.info(
-        `context threshold reached (${Math.round((used / limit) * 100)}%) — rollover pending`,
-        run.runId
-      );
+
+    // v0.4: evaluate the policy. If no rolloverPolicy is configured, fall back
+    // to the legacy context-threshold behavior (backward compatible).
+    const settings = this.effectiveSettings({
+      enabled: true,
+      rolloverThreshold: run.rolloverThreshold,
+    });
+    if (!run.rolloverPending) {
+      const policy = resolvePolicy(settings.rolloverPolicy, run.rolloverThreshold);
+      const evaluation = evaluateRollover(policy, {
+        contextRatio: limit > 0 ? used / limit : 0,
+        turnsInSession: run.turnsInCurrentSession ?? 0,
+        sessionStartedAt: run.currentSessionStartedAt ?? run.createdAt,
+        now: nowISO(),
+      });
+      if (evaluation.shouldRollOver) {
+        run.rolloverPending = true;
+        run.rolloverReason = evaluation.reason;
+        await this.logger.info(
+          `rollover pending (${evaluation.description})`,
+          run.runId
+        );
+      }
     }
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
@@ -209,7 +251,7 @@ export class AutonomousSessionController {
    * Spec 19, 20, 22, 49: turn finished. Priority order:
    *   1. verification result
    *   2. worker completion
-   *   3. rollover pending
+   *   3. rollover pending (v0.4: re-evaluate turns/time policies here too)
    *   4. otherwise continue
    * Serialized so concurrent turn-finish/context events cannot double-fire.
    */
@@ -246,11 +288,41 @@ export class AutonomousSessionController {
         return run;
       }
 
+      // v0.4: increment the per-session turn counter for worker turns
+      run.turnsInCurrentSession = (run.turnsInCurrentSession ?? 0) + 1;
+
       // 2. worker completion (precedence over rollover — spec 22)
       const w = detectWorkerStatus(lastAssistantText);
       if (w === 'complete') {
         await this.handleWorkerComplete(run, lastAssistantText, turn);
         return run;
+      }
+
+      // v0.4: re-evaluate the rollover policy at the turn boundary. Turns and
+      // time policies can only trip here; the context policy trips in
+      // onContextUsage. If rollover is already pending (context tripped), keep it.
+      if (!run.rolloverPending) {
+        const settings = this.effectiveSettings({
+          enabled: true,
+          rolloverThreshold: run.rolloverThreshold,
+        });
+        const policy = resolvePolicy(settings.rolloverPolicy, run.rolloverThreshold);
+        const evaluation = evaluateRollover(policy, {
+          contextRatio: run.contextLimit && run.contextLimit > 0
+            ? (run.contextUsage ?? 0) / run.contextLimit
+            : 0,
+          turnsInSession: run.turnsInCurrentSession,
+          sessionStartedAt: run.currentSessionStartedAt ?? run.createdAt,
+          now: nowISO(),
+        });
+        if (evaluation.shouldRollOver) {
+          run.rolloverPending = true;
+          run.rolloverReason = evaluation.reason;
+          await this.logger.info(
+            `rollover pending (${evaluation.description})`,
+            run.runId
+          );
+        }
       }
 
       // 3. rollover pending
@@ -261,7 +333,7 @@ export class AutonomousSessionController {
 
       // 4. continue normally
       await this.logger.info(
-        `turn finished (gen ${run.workerGeneration}) — continuing`,
+        `turn finished (gen ${run.workerGeneration}, turn ${run.turnsInCurrentSession}) — continuing`,
         run.runId
       );
       run.updatedAt = nowISO();
@@ -343,7 +415,11 @@ export class AutonomousSessionController {
     run.currentSessionId = created.sessionId;
     run.workerGeneration += 1;
     run.rolloverPending = false;
+    run.rolloverReason = undefined;
     run.contextUsage = 0;
+    // v0.4: reset per-session tracking for the fresh worker
+    run.turnsInCurrentSession = 0;
+    run.currentSessionStartedAt = nowISO();
     run.phase = 'working';
     run.transitionStage = 'session-active';
     run.transitionId = undefined;
@@ -355,7 +431,8 @@ export class AutonomousSessionController {
     );
   }
 
-  /** Spec 22, 32, 33, 34: worker COMPLETE -> fresh verification session. */
+  /** Spec 22, 32, 33, 34: worker COMPLETE -> fresh verification session.
+   *  v0.4: enforces the verification budget before creating a new verifier. */
   private async handleWorkerComplete(
     run: AutonomousRun,
     lastText: string,
@@ -365,6 +442,27 @@ export class AutonomousSessionController {
       `worker reported AUTONOMOUS_STATUS: COMPLETE`,
       run.runId
     );
+
+    // v0.4: check the verification budget BEFORE generating a final handoff.
+    // If we've already used all our verification attempts, the run fails in a
+    // controlled way instead of looping forever.
+    const settings = this.effectiveSettings({
+      enabled: true,
+      rolloverThreshold: run.rolloverThreshold,
+    });
+    const nextAttempt = run.verificationAttempt + 1;
+    if (verificationBudgetExceeded(nextAttempt - 1, settings.maxVerificationAttempts)) {
+      run.phase = 'error';
+      run.status = 'error';
+      run.lastError = `Verification budget exhausted (${run.verificationAttempt}/${settings.maxVerificationAttempts} attempts). The task could not be verified as complete.`;
+      run.updatedAt = nowISO();
+      await this.store.saveRun(run);
+      await this.logger.error(
+        `verification budget exhausted (${run.verificationAttempt}/${settings.maxVerificationAttempts}) — run halted`,
+        run.runId
+      );
+      return;
+    }
 
     // generate a final handoff (the worker's own summary is insufficient —
     // we ask it for a structured handoff first, per spec 24).
@@ -380,9 +478,13 @@ export class AutonomousSessionController {
       return;
     }
     run.handoff = finalHandoff;
-    run.verificationAttempt += 1;
+    run.verificationAttempt = nextAttempt;
     run.phase = 'verifying';
     run.rolloverPending = false;
+    run.rolloverReason = undefined;
+    // v0.4: reset per-session tracking for the verifier session
+    run.turnsInCurrentSession = 0;
+    run.currentSessionStartedAt = nowISO();
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info(
@@ -479,7 +581,11 @@ export class AutonomousSessionController {
     run.workerGeneration += 1;
     run.phase = 'working';
     run.rolloverPending = false;
+    run.rolloverReason = undefined;
     run.contextUsage = 0;
+    // v0.4: reset per-session tracking for the fresh worker
+    run.turnsInCurrentSession = 0;
+    run.currentSessionStartedAt = nowISO();
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info(
