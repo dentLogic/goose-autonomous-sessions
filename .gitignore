@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build artifacts
+dist/
+build/
+*.tsbuildinfo
+.next/
+
+# databases (demo artifacts)
+*.db
+*.db-journal
+prisma/migrations/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# editor / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*

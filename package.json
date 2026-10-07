@@ -1,0 +1,52 @@
+{
+  "name": "goose-autonomous-sessions",
+  "version": "0.1.0",
+  "description": "Global autonomous-session controller for Goose Desktop — unlimited context rollover via structured state handoffs, with independent verification. Local-only, no cloud.",
+  "license": "MIT",
+  "author": "dentLogic",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dentLogic/goose-autonomous-sessions.git"
+  },
+  "homepage": "https://github.com/dentLogic/goose-autonomous-sessions#readme",
+  "bugs": {
+    "url": "https://github.com/dentLogic/goose-autonomous-sessions/issues"
+  },
+  "keywords": [
+    "goose",
+    "autonomous-agents",
+    "context-rollover",
+    "local-llm",
+    "lm-studio",
+    "acp",
+    "ai-coding",
+    "session-handoff",
+    "electron",
+    "desktop",
+    "local-first",
+    "long-running-tasks"
+  ],
+  "type": "module",
+  "main": "src/autonomous/index.ts",
+  "exports": {
+    ".": "./src/autonomous/index.ts",
+    "./types": "./src/autonomous/types.ts"
+  },
+  "scripts": {
+    "demo": "bun examples/standalone-demo.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/autonomous examples"
+  },
+  "engines": {
+ "node": ">=18"
+  },
+  "files": [
+    "src/autonomous",
+    "examples",
+    "docs",
+    "install.sh",
+    "uninstall.sh",
+    "README.md",
+    "LICENSE"
+  ]
+}
