@@ -136,6 +136,54 @@ export interface AutonomousSettings {
    * `rolloverThreshold` for context-based rollover only.
    */
   rolloverPolicy?: RolloverPolicy;
+  // ── v0.6 ────────────────────────────────────────────────────────────────
+  /**
+   * Maximum total token cost (in cents) for the ENTIRE run.
+   * When totalCostCents >= maxTotalCostCents, the run enters an error state.
+   * 0/undefined = unlimited (v0.1–v0.5 behavior).
+   * Distinct from rolloverPolicy.maxCostCentsPerSession (which is per-session
+   * and triggers rollover, not halt). This is a hard run-wide budget.
+   */
+  maxTotalCostCents?: number;
+  /**
+   * Webhook URLs to notify on run events (completion, failure, rollover,
+   * verification). Each URL receives a POST with the event payload.
+   * The controller delivers asynchronously + retries once on failure.
+   */
+  webhooks?: string[];
+}
+
+// ── v0.6: webhook event types ────────────────────────────────────────────────
+
+export type WebhookEvent =
+  | 'run.started'
+  | 'run.completed'
+  | 'run.failed'
+  | 'run.stopped'
+  | 'run.resumed'
+  | 'rollover.completed'
+  | 'verification.started'
+  | 'verification.passed'
+  | 'verification.failed'
+  | 'budget.exhausted';
+
+export interface WebhookPayload {
+  event: WebhookEvent;
+  runId: string;
+  /** ISO timestamp when the webhook was emitted. */
+  emittedAt: string;
+  /** The current run state (compact snapshot). */
+  run: {
+    status: AutonomousRunStatus;
+    phase: AutonomousPhase;
+    workerGeneration: number;
+    verificationAttempt: number;
+    totalCostCents?: number;
+    sessionCostCents?: number;
+    lastError?: string;
+  };
+  /** Event-specific details (e.g., rollover reason, verifier findings). */
+  details?: Record<string, unknown>;
 }
 
 export interface AutonomousOperation {

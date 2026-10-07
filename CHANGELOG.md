@@ -5,6 +5,52 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2025-01-20
+
+### Added — cost budget + webhooks
+
+- **Cost-based run budget** (`AutonomousSettings.maxTotalCostCents`):
+  - A hard run-wide budget that halts the entire run when `totalCostCents` exceeds the limit
+  - Distinct from `rolloverPolicy.maxCostCentsPerSession` (which is per-session and triggers rollover, not halt)
+  - Enforced in `onTurnFinished` after cost accumulation, before completion/rollover checks
+  - Emits a `budget.exhausted` webhook + sets `lastError`
+  - `0` / `undefined` = unlimited (v0.1–v0.5 behavior — backward compatible)
+
+- **Webhook notifications** (`AutonomousSettings.webhooks`):
+  - Fire-and-forget POST delivery to configured URLs on run events
+  - 10 event types: `run.started`, `run.completed`, `run.failed`, `run.stopped`, `run.resumed`, `rollover.completed`, `verification.started`, `verification.passed`, `verification.failed`, `budget.exhausted`
+  - Retries once on network failure (after 2s)
+  - 5s timeout per attempt
+  - Payload includes a compact run snapshot + event-specific details
+  - `WebhookPayload` type: `{ event, runId, emittedAt, run, details }`
+  - Injectable via `ControllerDeps.webhookNotifier` (for testing or queue-based delivery)
+  - No-op when no webhooks configured (backward compatible)
+
+- **v0.6 demo** (`examples/v0.6-demo.ts`):
+  - Demonstrates cost budget halting a run + webhook event capture
+  - Watch the budget exhaust + `budget.exhausted` webhook fire
+
+- **12 new tests** (128 total):
+  - `tests/v0.6-integration.test.ts` — cost budget (3 tests) + webhooks (9 tests covering all event types)
+
+### Changed
+
+- `src/autonomous/types.ts` — added `maxTotalCostCents` + `webhooks` to `AutonomousSettings`; added `WebhookEvent` + `WebhookPayload` types
+- `src/autonomous/webhooks.ts` — new module: `createWebhookNotifier()`, `buildRunSnapshot()`, `deliverWithRetry()`
+- `src/autonomous/controller.ts` — `checkCostBudget()` method; `emitWebhook()` method; webhook emissions at all 10 event points (startRun, stopRun, resumeRun, performRollover, handleWorkerComplete, handleVerificationPass/Fail, budget/handoff failures)
+- `src/autonomous/index.ts` — exports the new `webhooks` module
+- `examples/` — added `v0.6-demo.ts`
+
+### Test suite
+
+- **128 tests, all passing** (116 from v0.5 + 12 new)
+- Ran in ~236ms
+
+### Intentionally not in v0.6
+
+- macOS / Windows support (Linux-first by user request)
+- npm package publication (workflow ready — add `NPM_TOKEN` secret)
+
 ## [0.5.0] — 2025-01-19
 
 ### Added — cost tracking + run resume + production dashboard

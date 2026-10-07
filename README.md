@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.5](https://img.shields.io/badge/Status-v0.5-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 116 passing](https://img.shields.io/badge/Tests-116%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.6](https://img.shields.io/badge/Status-v0.6-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 128 passing](https://img.shields.io/badge/Tests-128%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -523,6 +523,73 @@ await controller.resumeRun(); // resume — restores the pre-stop phase
 - Preserves handoff, session lineage, and logs across stop/resume
 - Throws if the run isn't in `stopped` status
 
+### 💸 Cost budget (v0.6)
+
+A hard run-wide budget — distinct from per-session rollover. When `totalCostCents` exceeds `maxTotalCostCents`, the entire run halts:
+
+```ts
+settings: {
+  rolloverPolicy: {
+    maxCostCentsPerSession: 50,  // roll over when a session costs > 50¢
+  },
+  maxTotalCostCents: 500,        // ← halt the whole run at $5.00 total
+}
+```
+
+When the budget exhausts:
+- Run enters `error` state with `lastError: "Run cost budget exhausted (505¢ / 500¢)..."`
+- Emits a `budget.exhausted` webhook
+
+### 🔔 Webhook notifications (v0.6)
+
+Get notified when run events happen — for Slack, Discord, monitoring, or orchestration:
+
+```ts
+settings: {
+  webhooks: [
+    'https://hooks.slack.com/services/...',
+    'https://your-server.com/api/autonomous-events',
+  ],
+}
+```
+
+10 event types, each delivered as a POST with a compact payload:
+
+| Event | When |
+|---|---|
+| `run.started` | A new run begins |
+| `run.completed` | Verification PASS — run finished successfully |
+| `run.failed` | Verification budget exhausted, handoff failed, etc. |
+| `run.stopped` | User stopped the run |
+| `run.resumed` | User resumed a stopped run |
+| `rollover.completed` | A rollover finished — fresh worker active |
+| `verification.started` | A fresh verifier session started |
+| `verification.passed` | Verifier emitted PASS |
+| `verification.failed` | Verifier emitted FAIL |
+| `budget.exhausted` | Cost budget exceeded — run halted |
+
+```json
+{
+  "event": "budget.exhausted",
+  "runId": "abc-123",
+  "emittedAt": "2025-01-20T10:42:18.000Z",
+  "run": {
+    "status": "error",
+    "phase": "error",
+    "workerGeneration": 3,
+    "verificationAttempt": 1,
+    "totalCostCents": 505,
+    "sessionCostCents": 0
+  },
+  "details": {
+    "totalCostCents": 505,
+    "maxTotalCostCents": 500
+  }
+}
+```
+
+Fire-and-forget delivery (never blocks the state machine), retries once on failure, 5s timeout per attempt. Injectable via `ControllerDeps.webhookNotifier` for testing.
+
 ---
 
 ## 🛡️ Crash recovery
@@ -697,7 +764,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.5 ships with **116 tests** covering the full spec:
+v0.6 ships with **128 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -709,13 +776,14 @@ v0.5 ships with **116 tests** covering the full spec:
 | `tests/rollover-policy.test.ts` | 29 | pure-function tests: context/turns/time/**cost** policies, OR semantics, budget |
 | `tests/v0.4-integration.test.ts` | 9 | controller integration: budget halts, turn-based rollover, per-session resets |
 | `tests/v0.5-integration.test.ts` | 10 | cost-based rollover, cost accumulation, run resume (stop→resume→complete) |
+| `tests/v0.6-integration.test.ts` | 12 | cost run budget halts, webhook events (all 10 types), no-op when unconfigured |
 
 ```bash
 $ bun test
-  116 pass
+  128 pass
   0 fail
-  260 expect() calls
-  Ran 116 tests across 8 files. [45.00ms]
+  297 expect() calls
+  Ran 128 tests across 9 files. [236ms]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -909,11 +977,17 @@ secrets never leak into the handoff artifact.
 - ✅ Dashboard hardening: Bearer token auth + `/api/metrics` + `/api/export` + `/api/health`
 - ✅ 116-test suite (99 + 17 new)
 
-### v0.6+ — future
+### v0.6 — cost budget + webhooks ✅
+
+- ✅ Cost-based run budget (`maxTotalCostCents`) — halts the entire run when total cost exceeds a hard budget
+- ✅ Webhook notifications — 10 event types, fire-and-forget POST delivery, injectable notifier
+- ✅ 128-test suite (116 + 12 new)
+
+### v0.7+ — future
 
 - ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
-- ⏳ Cost-based verification budget (halt when total run cost exceeds a budget)
-- ⏳ Webhook notifications (notify on completion/failure)
+- ⏳ Webhook signature verification (HMAC)
+- ⏳ Per-event webhook filtering (subscribe to specific events only)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

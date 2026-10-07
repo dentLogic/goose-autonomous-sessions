@@ -33,6 +33,11 @@ import {
   verificationBudgetExceeded,
 } from './rollover-policy';
 import { createFreshSession, formatSessionName } from './sessionManager';
+import {
+  buildRunSnapshot,
+  createWebhookNotifier,
+  type WebhookNotifier,
+} from './webhooks';
 import type {
   AgentTurn,
   AutonomousRun,
@@ -41,6 +46,8 @@ import type {
   LoggerAdapter,
   RolloverReason,
   StateStoreAdapter,
+  WebhookEvent,
+  WebhookPayload,
 } from './types';
 
 // ---- host-injected strategies ------------------------------------------------
@@ -79,6 +86,11 @@ export interface ControllerDeps {
    * mid-run without restarting.
    */
   settings?: AutonomousSettings;
+  /**
+   * v0.6: optional webhook notifier override. If omitted, the controller
+   * builds one from settings.webhooks via createWebhookNotifier().
+   */
+  webhookNotifier?: WebhookNotifier;
 }
 
 const nowISO = () => new Date().toISOString();
@@ -124,16 +136,77 @@ export class AutonomousSessionController {
   readonly logger: LoggerAdapter;
   /** The active handoff schema (custom or default). */
   readonly handoffSchema: HandoffSchema;
+  /** v0.6: the webhook notifier (no-op if no webhooks configured). */
+  private webhookNotifier: WebhookNotifier;
 
   constructor(private deps: ControllerDeps) {
     this.store = deps.store;
     this.logger = deps.logger;
     this.handoffSchema = deps.handoffSchema ?? defaultHandoffSchema();
+    // v0.6: resolve the webhook notifier — explicit override, or build from settings
+    this.webhookNotifier = deps.webhookNotifier ?? createWebhookNotifier([], this.logger);
   }
 
   /** v0.4: resolve the effective settings (deps.settings override > run-time settings). */
   private effectiveSettings(runSettings: AutonomousSettings): AutonomousSettings {
     return this.deps.settings ?? runSettings;
+  }
+
+  /** v0.6: emit a webhook event. Fire-and-forget. */
+  private emitWebhook(event: WebhookEvent, run: AutonomousRun, details?: Record<string, unknown>): void {
+    const settings = this.effectiveSettings({
+      enabled: true,
+      rolloverThreshold: run.rolloverThreshold,
+    });
+    // Re-resolve the notifier if settings changed (webhooks may be set per-run)
+    const notifier = this.deps.webhookNotifier
+      ?? createWebhookNotifier(settings.webhooks, this.logger);
+    const payload: WebhookPayload = {
+      event,
+      runId: run.runId,
+      emittedAt: nowISO(),
+      run: buildRunSnapshot(run),
+      details,
+    };
+    // fire-and-forget — never block the state machine
+    notifier(payload).catch(() => {
+      // errors are logged inside the notifier
+    });
+  }
+
+  /**
+   * v0.6: check the run-wide cost budget. If totalCostCents >= maxTotalCostCents,
+   * halt the run in an error state and emit a budget.exhausted webhook.
+   */
+  private async checkCostBudget(run: AutonomousRun): Promise<boolean> {
+    const settings = this.effectiveSettings({
+      enabled: true,
+      rolloverThreshold: run.rolloverThreshold,
+    });
+    if (
+      typeof settings.maxTotalCostCents === 'number' &&
+      settings.maxTotalCostCents > 0 &&
+      typeof run.totalCostCents === 'number' &&
+      run.totalCostCents >= settings.maxTotalCostCents
+    ) {
+      run.phase = 'error';
+      run.status = 'error';
+      run.lastError = `Run cost budget exhausted (${
+        run.totalCostCents
+      }¢ / ${settings.maxTotalCostCents}¢). Halting to prevent runaway spend.`;
+      run.updatedAt = nowISO();
+      await this.store.saveRun(run);
+      await this.logger.error(
+        `cost budget exhausted (${run.totalCostCents}¢ / ${settings.maxTotalCostCents}¢) — run halted`,
+        run.runId
+      );
+      this.emitWebhook('budget.exhausted', run, {
+        totalCostCents: run.totalCostCents,
+        maxTotalCostCents: settings.maxTotalCostCents,
+      });
+      return true; // halted
+    }
+    return false; // ok
   }
 
   async startRun(input: {
@@ -174,6 +247,7 @@ export class AutonomousSessionController {
       `Worker 01 active (session ${input.sessionId})`,
       run.runId
     );
+    this.emitWebhook('run.started', run, { objective: input.objective });
     return run;
   }
 
@@ -192,6 +266,7 @@ export class AutonomousSessionController {
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info('run stopped by user', run.runId);
+    this.emitWebhook('run.stopped', run);
     return run;
   }
 
@@ -235,6 +310,7 @@ export class AutonomousSessionController {
       `run resumed — phase: ${run.phase}, worker gen: ${run.workerGeneration}`,
       run.runId
     );
+    this.emitWebhook('run.resumed', run);
     return run;
   }
 
@@ -346,6 +422,11 @@ export class AutonomousSessionController {
         run.totalCostCents = (run.totalCostCents ?? 0) + turn.costCents;
       }
 
+      // v0.6: check the run-wide cost budget. If exhausted, halt immediately.
+      if (await this.checkCostBudget(run)) {
+        return run; // halted — budget.exhausted webhook already emitted
+      }
+
       // 2. worker completion (precedence over rollover — spec 22)
       const w = detectWorkerStatus(lastAssistantText);
       if (w === 'complete') {
@@ -422,6 +503,7 @@ export class AutonomousSessionController {
       run.updatedAt = nowISO();
       await this.store.saveRun(run);
       await this.logger.error('handoff generation failed — phase set to error', run.runId);
+      this.emitWebhook('run.failed', run, { reason: 'handoff generation failed' });
       return;
     }
 
@@ -486,6 +568,10 @@ export class AutonomousSessionController {
       `${formatSessionName('worker', run.workerGeneration)} activated`,
       run.runId
     );
+    this.emitWebhook('rollover.completed', run, {
+      workerGeneration: run.workerGeneration,
+      rolloverReason: run.rolloverReason,
+    });
   }
 
   /** Spec 22, 32, 33, 34: worker COMPLETE -> fresh verification session.
@@ -518,6 +604,11 @@ export class AutonomousSessionController {
         `verification budget exhausted (${run.verificationAttempt}/${settings.maxVerificationAttempts}) — run halted`,
         run.runId
       );
+      this.emitWebhook('run.failed', run, {
+        reason: 'verification budget exhausted',
+        verificationAttempt: run.verificationAttempt,
+        maxVerificationAttempts: settings.maxVerificationAttempts,
+      });
       return;
     }
 
@@ -532,6 +623,7 @@ export class AutonomousSessionController {
       run.updatedAt = nowISO();
       await this.store.saveRun(run);
       await this.logger.error('final handoff generation failed', run.runId);
+      this.emitWebhook('run.failed', run, { reason: 'final handoff generation failed' });
       return;
     }
     run.handoff = finalHandoff;
@@ -549,6 +641,7 @@ export class AutonomousSessionController {
       `verification attempt ${run.verificationAttempt} starting`,
       run.runId
     );
+    this.emitWebhook('verification.started', run, { attempt: run.verificationAttempt });
 
     const created = await createFreshSession(this.store, {
       runId: run.runId,
@@ -588,12 +681,15 @@ export class AutonomousSessionController {
     await this.store.saveRun(run);
     await this.store.updateSessionStatus(run.currentSessionId, 'completed');
     await this.logger.info('AUTONOMOUS_VERIFICATION: PASS — run completed', run.runId);
+    this.emitWebhook('verification.passed', run);
+    this.emitWebhook('run.completed', run);
   }
 
   /** Spec 11, 34: verification FAIL -> findings become next handoff -> new worker. */
   private async handleVerificationFail(run: AutonomousRun, verifierText: string): Promise<void> {
     await this.logger.warn('AUTONOMOUS_VERIFICATION: FAIL — spinning new worker', run.runId);
     await this.store.updateSessionStatus(run.currentSessionId, 'failed');
+    this.emitWebhook('verification.failed', run, { findings: extractFindings(verifierText) });
 
     // Spec 34: the verifier's findings become the next handoff.
     const failHandoff: Handoff = stampObjective(
