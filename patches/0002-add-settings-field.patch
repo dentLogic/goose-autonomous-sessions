@@ -1,0 +1,33 @@
+--- a/ui/desktop/src/utils/settings.ts
++++ b/ui/desktop/src/utils/settings.ts
+@@ -34,6 +34,13 @@
+   | 'system' | 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'id' | 'ms' | 'vi'
+   | 'hi' | 'ja' | 'ko' | 'ru' | 'tr' | 'zh-CN' | 'zh-TW';
+ 
++// goose-autonomous-sessions: shape of the global autonomous-run config.
++// Mirrors src/autonomous/types.ts AutonomousSettings.
++export interface AutonomousSettings {
++  enabled: boolean;
++  rolloverThreshold: number; // 0..1, default 0.75
++}
++
+ export interface Settings {
+   // Desktop app settings
+   showMenuBarIcon: boolean;
+@@ -56,6 +63,8 @@
+   seenAnnouncementIds: string[];
+   recentModels: RecentModel[];
+   useLegacyAgentLoop: boolean;
++  // goose-autonomous-sessions: global autonomous-run config (enabled + threshold).
++  autonomous: AutonomousSettings;
+ }
+ 
+ export type SettingKey = keyof Settings;
+@@ -98,6 +107,7 @@
+   seenAnnouncementIds: [],
+   recentModels: [],
+   useLegacyAgentLoop: false,
++  autonomous: { enabled: false, rolloverThreshold: 0.75 },
+ };
+ 
+ export function getKeyboardShortcuts(settings: Settings): KeyboardShortcuts {

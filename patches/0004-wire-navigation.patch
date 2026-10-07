@@ -1,0 +1,25 @@
+--- a/ui/desktop/src/hooks/useNavigationSessions.ts
++++ b/ui/desktop/src/hooks/useNavigationSessions.ts
+@@ -197,6 +197,22 @@
+     };
+   }, []);
+ 
++  // goose-autonomous-sessions: when the autonomous controller creates a fresh
++  // session (rollover or worker-complete -> verification), it dispatches a
++  // GOOSE_AUTONOMOUS_SWITCH_SESSION event with the new sessionId. We navigate
++  // the renderer to the paired chat route so the user sees the new session.
++  useEffect(() => {
++    const handleSwitch = (event: Event) => {
++      const { sessionId: targetSessionId } = (event as CustomEvent<{ sessionId: string }>).detail;
++      if (targetSessionId) {
++        navigate(pairSessionPath(targetSessionId));
++      }
++    };
++    window.addEventListener(AppEvents.GOOSE_AUTONOMOUS_SWITCH_SESSION, handleSwitch);
++    return () =>
++      window.removeEventListener(AppEvents.GOOSE_AUTONOMOUS_SWITCH_SESSION, handleSwitch);
++  }, [navigate]);
++
+   const handleNavClick = useCallback(
+     (path: string) => {
+       if (path === '/pair') {

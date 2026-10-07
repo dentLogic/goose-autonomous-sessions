@@ -10,7 +10,9 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.1](https://img.shields.io/badge/Status-v0.1%20alpha-FFB000?style=flat-square)](#-roadmap)
+[![Status: v0.2](https://img.shields.io/badge/Status-v0.2-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 46 passing](https://img.shields.io/badge/Tests-46%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 
 </div>
 
@@ -497,22 +499,65 @@ into the strategies you injected.
 
 ## 📦 Install / Uninstall
 
-### Install into a Goose Desktop source checkout
+### Install into Goose Desktop (v0.2 — fully automated)
 
 ```bash
-./install.sh /path/to/goose
-# or:
-GOOSE_SOURCE=/path/to/goose ./install.sh
+git clone https://github.com/dentLogic/goose-autonomous-sessions.git
+cd goose-autonomous-sessions
+
+# Point the installer at your Goose source checkout + build the customized Desktop
+./install.sh /path/to/goose --build
 ```
 
-The installer:
+The v0.2 installer does **everything**:
 
-1. ✅ Verifies Linux
-2. ✅ Verifies the Goose source layout
-3. ✅ Verifies the git tree is clean
-4. ✅ Creates a backup branch (`goose-autonomous-sessions/<timestamp>`)
-5. ✅ Copies `src/autonomous/` → `ui/desktop/src/autonomous/`
-6. ✅ Prints a clear summary + next steps
+1. ✅ Verifies Linux + Goose source layout + clean git tree
+2. ✅ Verifies the pinned Goose commit matches (`ce0c490083...`)
+3. ✅ Creates a backup branch (`goose-autonomous-sessions/<timestamp>`)
+4. ✅ Copies `src/autonomous/` + `adapters/` → `ui/desktop/src/`
+5. ✅ Auto-generates the controller singleton wired to Electron + ACP adapters
+6. ✅ **Validates every patch** before applying (aborts cleanly if any fail)
+7. ✅ **Applies all 5 lifecycle patches** in series
+8. ✅ Optionally builds the customized Desktop (`--build`)
+
+After it completes, launch Goose Desktop → Settings → enable **Autonomous Sessions** → start a task → walk away.
+
+<details>
+<summary><b>What the 5 patches do</b></summary>
+
+| Patch | Goose file | What it adds |
+| --- | --- | --- |
+| `0001-add-autonomous-event` | `constants/events.ts` | `GOOSE_AUTONOMOUS_SWITCH_SESSION` event |
+| `0002-add-settings-field` | `utils/settings.ts` | `AutonomousSettings` (enable + threshold) |
+| `0003-wire-useChatSession` | `hooks/useChatSession.ts` | `onContextUsage` + `onTurnFinished` hooks |
+| `0004-wire-navigation` | `hooks/useNavigationSessions.ts` | Auto-switch to new sessions |
+| `0005-add-electron-ipc` | `main.ts` + `preload.ts` | State/settings IPC bridge |
+
+Each patch is minimal: just an import + a hook call. No Goose logic is rewritten. See [`patches/README.md`](patches/README.md) for the full spec.
+
+</details>
+
+<details>
+<summary><b>What if my Goose commit doesn't match the pinned one?</b></summary>
+
+The installer warns you and asks before proceeding:
+
+```
+⚠  Goose HEAD (abc1234) does not match the pinned commit (ce0c490).
+   The patches were generated against the pinned commit and may not apply.
+
+  Attempt anyway? [y/N]
+```
+
+If you say yes, the installer still **validates every patch** (`git apply --check`) before applying anything. If validation fails, it aborts cleanly with zero changes to your Goose source.
+
+To check out the exact pinned commit:
+```bash
+cd /path/to/goose
+git checkout ce0c4900837a51b2ae50ce0df1484c34a1be754e
+```
+
+</details>
 
 ### Uninstall
 
@@ -520,8 +565,56 @@ The installer:
 ./uninstall.sh /path/to/goose
 ```
 
-Restores the pre-installation state from the backup branch. Your Goose data and
-normal sessions are preserved.
+Restores the pre-installation state from the backup branch. Your Goose data, normal sessions, and autonomous state files are all preserved.
+
+### Run the tests
+
+```bash
+bun test    # 46 tests across state machine, handoff, completion, recovery
+```
+
+### Try the zero-dep demo (no Goose required)
+
+```bash
+bun examples/standalone-demo.ts
+```
+
+---
+
+## 🧪 Test suite
+
+v0.2 ships with **46 tests** covering the full spec:
+
+| File | Tests | Covers |
+| --- | --- | --- |
+| `tests/state-machine.test.ts` | 11 | start→working, threshold→pending, rollover, verification PASS/FAIL, duplicate prevention, stop semantics |
+| `tests/handoff.test.ts` | 14 | prompt builder, validation (8 cases), JSON parsing (fence-tolerant), serialization, objective stamping |
+| `tests/completion-detection.test.ts` | 10 | exact-line marker matching, malformed markers, natural-language rejection |
+| `tests/recovery.test.ts` | 11 | the full spec-36 decision tree (9 phases + edge cases) |
+
+```bash
+$ bun test
+  46 pass
+  0 fail
+  99 expect() calls
+  Ran 46 tests across 4 files. [30.00ms]
+```
+
+---
+
+## 🔌 Adapters — the portability seam
+
+v0.2 ships reference adapter implementations for Goose Desktop:
+
+```
+adapters/
+├── electron-state-store.ts      ← StateStoreAdapter (atomic JSON in userData)
+├── electron-logger.ts           ← LoggerAdapter (batched + rotated JSONL)
+├── acp-integration.ts           ← acpHandoffGenerator + acpSendPrompt
+└── electron-ipc-handlers.ts     ← ipcMain.handle bridge (renderer↔main)
+```
+
+The controller itself (`src/autonomous/controller.ts`) has **zero** hard dependencies — it only calls the injected `store`, `logger`, `generateHandoffResponse`, and `sendPrompt`. This means the same controller class runs unchanged inside Goose Desktop, a Next.js app, or a standalone script. See [`adapters/README.md`](adapters/README.md) for the wiring diagram.
 
 ---
 
@@ -622,7 +715,7 @@ secrets never leak into the handoff artifact.
 
 ## 🗺️ Roadmap
 
-### v0.1 (current) — core module
+### v0.1 — core module ✅
 
 - ✅ Portable controller (zero hard deps)
 - ✅ Structured handoff generation + validation
@@ -633,19 +726,21 @@ secrets never leak into the handoff artifact.
 - ✅ Standalone demo
 - ✅ Installer (module copy + backup)
 
-### v0.2 — Goose Desktop integration
+### v0.2 — Goose Desktop integration ✅
 
-- ⏳ Pin a specific Goose commit
-- ⏳ Generate validated lifecycle patches (`patches/`)
-- ⏳ Automated Desktop build step in installer
-- ⏳ Electron main-process adapter (app-data JSON persistence)
-- ⏳ ACP `session/new` + `session/prompt` integration
+- ✅ Pinned Goose commit (`ce0c490083...`)
+- ✅ 5 validated lifecycle patches (`patches/`)
+- ✅ Automated patch application + Desktop build step in installer
+- ✅ Electron main-process adapter (atomic JSON persistence in app-data)
+- ✅ ACP integration reference (`acpHandoffGenerator` + `acpSendPrompt`)
+- ✅ 46-test suite (state machine, handoff, completion, recovery)
 
 ### v0.3+ — quality of life
 
 - ⏳ macOS support
 - ⏳ Configurable handoff schema (custom fields)
 - ⏳ Verification retry budget (opt-in)
+- ⏳ npm package publication
 - ⏳ Web dashboard for monitoring long runs
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)

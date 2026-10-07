@@ -1,0 +1,10 @@
+--- a/ui/desktop/src/constants/events.ts
++++ b/ui/desktop/src/constants/events.ts
+@@ -13,4 +13,7 @@
+   SCROLL_CHAT_TO_BOTTOM = 'scroll-chat-to-bottom',
+   HIDE_ALERT_POPOVER = 'hide-alert-popover',
+   RESPONSE_STYLE_CHANGED = 'responseStyleChanged',
++  // goose-autonomous-sessions: dispatched by the controller to ask the
++  // Desktop renderer to switch to a freshly-created autonomous session.
++  GOOSE_AUTONOMOUS_SWITCH_SESSION = 'goose-autonomous-switch-session',
+ }

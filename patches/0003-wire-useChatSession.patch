@@ -1,0 +1,70 @@
+--- a/ui/desktop/src/hooks/useChatSession.ts
++++ b/ui/desktop/src/hooks/useChatSession.ts
+@@ -1,6 +1,10 @@
+ import { useCallback, useEffect, useMemo, useRef } from 'react';
+ import { defineMessages, useIntl } from '../i18n';
+ import { AppEvents } from '../constants/events';
++// goose-autonomous-sessions: lifecycle hooks into the autonomous controller.
++// The controller singleton lives in ui/desktop/src/autonomous/ and is a no-op
++// until a run is active.
++import { autonomousController } from '../autonomous';
+ import { toastError } from '../toasts';
+ import { ChatState } from '../types/chatState';
+ 
+@@ -78,6 +82,21 @@
+     [sessionId]
+   );
+ 
++  // goose-autonomous-sessions: report context usage (tokens / limit) so the
++  // controller can mark rollover-pending at the configured threshold. The
++  // controller no-ops when no autonomous run is active or this session is not
++  // the current one — so this hook is safe for every chat session.
++  useEffect(() => {
++    const limit = tokenState.contextLimit;
++    if (limit && limit > 0) {
++      void autonomousController.onContextUsage(
++        sessionId,
++        tokenState.accumulatedTotalTokens,
++        limit
++      );
++    }
++  }, [tokenState.accumulatedTotalTokens, tokenState.contextLimit, sessionId]);
++
+   useEffect(() => {
+     const handleSessionRenamed = (event: Event) => {
+       const {
+@@ -110,6 +129,34 @@
+ 
+   const onFinish = useCallback(
+     async (error?: string): Promise<void> => {
++      // goose-autonomous-sessions: notify the controller that a model turn
++      // finished. We pull the last assistant text from the current snapshot
++      // so the controller can detect AUTONOMOUS_STATUS: COMPLETE / CONTINUE
++      // or AUTONOMOUS_VERIFICATION: PASS / FAIL markers. Errors here must
++      // never break Goose's normal chat flow.
++      try {
++        const snap = snapshotRef.current;
++        const lastAssistantText = (snap?.messages ?? [])
++          .filter((m) => m.role === 'assistant')
++          .flatMap((m) => m.content)
++          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
++          .map((c) => c.text)
++          .join('\n')
++          .slice(-8000);
++        void autonomousController.onTurnFinished(sessionId, lastAssistantText, {
++          sessionId,
++          turnIndex: (snap?.messages ?? []).length,
++          role: 'worker',
++          summary: lastAssistantText.slice(0, 200),
++          filesTouched: [],
++          testsRun: [],
++          contextBefore: 0,
++          contextAfter: snap?.tokenState.accumulatedTotalTokens ?? 0,
++          ts: new Date().toISOString(),
++        });
++      } catch {
++        // swallow — autonomous must not affect chat
++      }
+       if (error) {
+         toastError({ title: "Couldn't send message", msg: error });
+       } else {
