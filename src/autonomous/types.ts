@@ -192,6 +192,9 @@ export interface WebhookConfig {
  * - `backoffMs`: delay between retries in milliseconds. Default: 2000.
  * - `backoffStrategy`: 'fixed' (constant delay) or 'exponential' (delay doubles
  *   each retry). Default: 'fixed'.
+ * - `jitter`: v0.9 — add random jitter to the backoff delay to avoid the
+ *   thundering-herd problem when multiple webhooks retry simultaneously.
+ *   Default: false. When true, a random 0–50% of the delay is added.
  */
 export interface WebhookRetryPolicy {
   /** Total attempts (including the first). Default 2. */
@@ -200,6 +203,11 @@ export interface WebhookRetryPolicy {
   backoffMs?: number;
   /** 'fixed' or 'exponential'. Default 'fixed'. */
   backoffStrategy?: 'fixed' | 'exponential';
+  /**
+   * v0.9: add random jitter (0–50% of the computed delay) to avoid
+   * thundering-herd. Default false.
+   */
+  jitter?: boolean;
 }
 
 // ── v0.6: webhook event types ────────────────────────────────────────────────
@@ -261,6 +269,10 @@ export interface WebhookDeliveryRecord {
   signed: boolean;
   /** Attempt number (1 = first try, 2 = retry). */
   attempt: number;
+  /** v0.9: The original payload (for replay). Only stored for failed deliveries. */
+  payload?: WebhookPayload;
+  /** v0.9: The webhook config used (for replay — url, secret, retry). Skipped records don't have this. */
+  config?: { url: string; secret?: string; retry?: WebhookRetryPolicy };
 }
 
 export interface AutonomousOperation {

@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.8](https://img.shields.io/badge/Status-v0.8-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 158 passing](https://img.shields.io/badge/Tests-158%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.9](https://img.shields.io/badge/Status-v0.9-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 167 passing](https://img.shields.io/badge/Tests-167%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -675,6 +675,52 @@ Response:
 }
 ```
 
+### 🎲 Webhook jitter + event replay (v0.9)
+
+**Jitter** — randomized backoff to avoid thundering-herd:
+```ts
+webhooks: [
+  { url: '...', retry: { maxAttempts: 3, backoffMs: 1000, jitter: true } },
+]
+```
+When `jitter: true`, a random 0–50% of the computed delay is added. Works with both `'fixed'` and `'exponential'` backoff. Default: `false` (backward compatible).
+
+**Event replay** — re-deliver failed webhooks:
+```ts
+import { replayFailedDeliveries } from 'goose-autonomous-sessions';
+const count = await replayFailedDeliveries(logger, runId?);
+// Re-attempts all failed deliveries (optionally filtered by runId).
+// Original records preserved; new records appended for replay attempts.
+```
+
+Failed deliveries now store the original `payload` + `config`, so they can be replayed. Dashboard endpoint: `POST /api/webhooks/replay?runId=xxx`.
+
+### 🖥️ CLI tool (v0.9)
+
+Inspect state from the terminal — no browser required:
+
+```bash
+# Show current run state + settings
+bun cli/goose-autonomous.ts state
+
+# Recent event log
+bun cli/goose-autonomous.ts logs --limit 20
+
+# Webhook delivery log (filter by run)
+bun cli/goose-autonomous.ts webhooks --run-id abc-123
+
+# Session lineage
+bun cli/goose-autonomous.ts sessions
+
+# Compact metrics (Prometheus-friendly)
+bun cli/goose-autonomous.ts metrics
+
+# Re-attempt failed webhook deliveries
+bun cli/goose-autonomous.ts replay --run-id abc-123
+```
+
+Flags: `--data-dir DIR` (default: `~/.config/Goose`), `--limit N`, `--run-id ID`. Run with `--help` for the full command list.
+
 ---
 
 ## 🛡️ Crash recovery
@@ -849,7 +895,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.8 ships with **158 tests** covering the full spec:
+v0.9 ships with **167 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -864,13 +910,14 @@ v0.8 ships with **158 tests** covering the full spec:
 | `tests/v0.6-integration.test.ts` | 12 | cost run budget halts, webhook events (all 10 types), no-op when unconfigured |
 | `tests/v0.7-integration.test.ts` | 20 | HMAC sign/verify, event filtering, delivery log (skipped/failed/capped/by-runId) |
 | `tests/v0.8-integration.test.ts` | 10 | retry policy (default/maxAttempts/backoffMs/exponential/per-webhook), delivery log shape, sign helpers |
+| `tests/v0.9-integration.test.ts` | 9 | jitter (disabled by default, adds randomness, works with exponential), replay (stores payload+config, getReplayableDeliveries, replayFailedDeliveries re-attempts, filters by runId, returns 0 when no failures) |
 
 ```bash
 $ bun test
-  158 pass
+  167 pass
   0 fail
-  370 expect() calls
-  Ran 158 tests across 11 files. [14.7s]
+  396 expect() calls
+  Ran 167 tests across 12 files. [20.5s]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -1085,11 +1132,18 @@ secrets never leak into the handoff artifact.
 - ✅ npm publication readiness (metadata finalized, name available, workflow ready)
 - ✅ 158-test suite (148 + 10 new)
 
-### v0.9+ — future
+### v0.9 — jitter + replay + CLI ✅
 
-- ⏳ npm package publication (add `NPM_TOKEN` secret → auto-publish on tag)
-- ⏳ Webhook delivery retries with jitter (randomized backoff to avoid thundering herd)
-- ⏳ Webhook event replay (re-deliver failed events from the log)
+- ✅ Webhook retry jitter (`WebhookRetryPolicy.jitter` — randomized backoff)
+- ✅ Webhook event replay (`replayFailedDeliveries()` + `/api/webhooks/replay` endpoint)
+- ✅ CLI tool (`cli/goose-autonomous.ts` — state/logs/webhooks/sessions/metrics/replay)
+- ✅ 167-test suite (158 + 9 new)
+
+### v1.0+ — future
+
+- ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
+- ⏳ Stable API freeze for 1.0
+- ⏳ Performance benchmarks + profiling
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

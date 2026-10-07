@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
-import { getDeliveryLog, clearDeliveryLog } from '../src/autonomous/webhooks';
+import { getDeliveryLog, clearDeliveryLog, replayFailedDeliveries } from '../src/autonomous/webhooks';
 
 // ─── config ───────────────────────────────────────────────────────────────────
 
@@ -525,6 +525,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // v0.9: replay failed webhook deliveries
+  // POST /api/webhooks/replay?runId=xxx — re-attempt failed deliveries
+  if (url.pathname === '/api/webhooks/replay' && req.method === 'POST') {
+    const runId = url.searchParams.get('runId') ?? undefined;
+    const silentLogger = {
+      info: async () => {},
+      warn: async () => {},
+      error: async () => {},
+    };
+    const count = await replayFailedDeliveries(silentLogger, runId);
+    // wait a bit for deliveries to complete
+    await new Promise((r) => setTimeout(r, 500));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ replayed: count, runId: runId ?? null }));
+    return;
+  }
+
   if (url.pathname === '/api/events') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -552,7 +569,7 @@ server.listen(PORT, () => {
   console.log(`   dashboard:  http://localhost:${PORT}`);
   console.log(`   data dir:   ${DATA_DIR}`);
   console.log(`   auth:       ${AUTH_TOKEN ? 'enabled (Bearer token)' : 'disabled (set AUTONOMOUS_DASHBOARD_TOKEN)'}`);
-  console.log(`   endpoints:  /  /api/state  /api/metrics  /api/export  /api/health  /api/webhooks  /api/events`);
+  console.log(`   endpoints:  /  /api/state  /api/metrics  /api/export  /api/health  /api/webhooks  /api/webhooks/replay  /api/events`);
   console.log(`   auto-refresh: 1s + SSE live updates`);
   console.log(`\n   Press Ctrl+C to stop.\n`);
 });

@@ -5,6 +5,63 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2025-01-23
+
+### Added — jitter + replay + CLI
+
+- **Webhook retry jitter** (`WebhookRetryPolicy.jitter`):
+  - When `jitter: true`, a random 0–50% of the computed backoff delay is added
+  - Prevents the "thundering herd" problem when multiple webhooks retry simultaneously
+  - Works with both `'fixed'` and `'exponential'` backoff strategies
+  - Default: `false` (backward compatible with v0.8)
+
+- **Webhook event replay** (`replayFailedDeliveries()`):
+  - Re-delivers failed webhook deliveries from the delivery log
+  - Failed records now store the original `payload` + `config` (url, secret, retry)
+  - `replayFailedDeliveries(logger, runId?)` — re-attempts all failed deliveries (optionally filtered by runId)
+  - `getReplayableDeliveries(runId?)` — inspect which deliveries are eligible for replay
+  - Original records are preserved; new records are appended for replay attempts
+  - Dashboard endpoint: `POST /api/webhooks/replay?runId=xxx`
+
+- **CLI tool** (`cli/goose-autonomous.ts`):
+  - Terminal inspector for autonomous-session state — no browser required
+  - Commands: `state`, `logs`, `webhooks`, `sessions`, `metrics`, `replay`, `help`
+  - Flags: `--data-dir DIR`, `--limit N`, `--run-id ID`
+  - Run with: `bun cli/goose-autonomous.ts <command>`
+  - Read-only (except `replay` which re-attempts failed deliveries)
+
+- **v0.9 demo** (`examples/v0.9-demo.ts`):
+  - Demonstrates jitter (comparing with/without) + event replay
+  - Shows failed deliveries being replayed with new records appended
+
+- **9 new tests** (167 total):
+  - `tests/v0.9-integration.test.ts` — jitter (3: disabled by default, adds randomness, works with exponential), replay (6: stores payload+config, getReplayableDeliveries, replayFailedDeliveries re-attempts, filters by runId, returns 0 when no failures, delivered records don't store payload)
+
+### Changed
+
+- `src/autonomous/types.ts` — added `jitter` to `WebhookRetryPolicy`; added `payload` + `config` fields to `WebhookDeliveryRecord`
+- `src/autonomous/webhooks.ts` — `deliverWithRetry` applies jitter when enabled; failed deliveries now store payload + config; added `replayFailedDeliveries()` + `getReplayableDeliveries()` exports
+- `dashboard/server.ts` — added `POST /api/webhooks/replay` endpoint
+- `package.json` — v0.9.0; added `cli` script; added `bin` field for the CLI
+- `examples/` — added `v0.9-demo.ts`
+- `cli/` — new directory with `goose-autonomous.ts`
+
+### Backward compatibility
+
+- v0.8 `WebhookRetryPolicy` without `jitter` → jitter disabled (default)
+- v0.8 `WebhookDeliveryRecord` without `payload`/`config` → still valid (only failed deliveries store them)
+- All 158 v0.8 tests pass unchanged
+
+### Test suite
+
+- **167 tests, all passing** (158 from v0.8 + 9 new)
+- Ran in ~20.5s (slower due to jitter + replay timing tests)
+
+### Intentionally not in v0.9
+
+- macOS / Windows support (Linux-first by user request)
+- Actual npm publication (requires `NPM_TOKEN` secret — workflow is ready)
+
 ## [0.8.0] — 2025-01-22
 
 ### Added — configurable retry + webhook dashboard + npm-ready

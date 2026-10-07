@@ -166,9 +166,13 @@ async function deliverWithRetry(
     const msg = (e as Error).message;
     if (attempt < maxAttempts) {
       // v0.8: compute backoff (fixed or exponential)
-      const delay = strategy === 'exponential'
+      let delay = strategy === 'exponential'
         ? backoffMs * Math.pow(2, attempt - 1)
         : backoffMs;
+      // v0.9: apply jitter (random 0–50% of the delay) to avoid thundering-herd
+      if (policy.jitter) {
+        delay = delay + Math.random() * (delay * 0.5);
+      }
       await new Promise((r) => setTimeout(r, delay));
       await deliverWithRetry(config, payload, logger, attempt + 1);
     } else {
@@ -184,6 +188,9 @@ async function deliverWithRetry(
         error: msg,
         signed: !!config.secret,
         attempt,
+        // v0.9: store payload + config for replay
+        payload,
+        config: { url: config.url, secret: config.secret, retry: config.retry },
       });
     }
   }
@@ -202,6 +209,8 @@ function recordDelivery(input: {
   error?: string;
   signed: boolean;
   attempt: number;
+  payload?: WebhookPayload;
+  config?: { url: string; secret?: string; retry?: any };
 }): void {
   deliveryLog.push({
     id: randomUUID(),
@@ -214,6 +223,9 @@ function recordDelivery(input: {
     error: input.error,
     signed: input.signed,
     attempt: input.attempt,
+    // v0.9: store for replay (only on failed deliveries)
+    payload: input.payload,
+    config: input.config,
   });
   // cap the log
   if (deliveryLog.length > MAX_DELIVERY_RECORDS) {
@@ -252,4 +264,51 @@ export function buildRunSnapshot(run: {
     sessionCostCents: run.sessionCostCents,
     lastError: run.lastError,
   };
+}
+
+// ── v0.9: webhook event replay ───────────────────────────────────────────────
+
+/**
+ * v0.9: Re-deliver failed webhook deliveries.
+ *
+ * Finds all records with `result: 'failed'` that have a stored payload + config,
+ * and re-attempts delivery. Useful when a webhook endpoint was temporarily down
+ * and you want to re-deliver the events that couldn't be delivered.
+ *
+ * @param logger — the logger to use for delivery logging
+ * @param runId — optional: only replay failures for this run
+ * @returns the number of deliveries re-attempted
+ *
+ * The original delivery records are NOT removed — new records are appended
+ * for the replay attempts (so you can see the full delivery history).
+ */
+export async function replayFailedDeliveries(
+  logger: LoggerAdapter,
+  runId?: string
+): Promise<number> {
+  const failed = deliveryLog.filter(
+    (r) => r.result === 'failed' && r.payload && r.config
+  );
+  const toReplay = runId ? failed.filter((r) => r.runId === runId) : failed;
+  for (const record of toReplay) {
+    // Re-attempt delivery with the original config + payload.
+    // Use maxAttempts=1 so replay doesn't trigger another retry cycle.
+    const config: WebhookConfig = {
+      url: record.config!.url,
+      secret: record.config!.secret,
+      retry: { maxAttempts: 1, backoffMs: 0 },
+    };
+    await deliverWithRetry(config, record.payload!, logger, 1);
+  }
+  return toReplay.length;
+}
+
+/**
+ * v0.9: Get failed delivery records that are eligible for replay
+ * (have a stored payload + config).
+ */
+export function getReplayableDeliveries(runId?: string): WebhookDeliveryRecord[] {
+  return deliveryLog.filter(
+    (r) => r.result === 'failed' && r.payload && r.config && (!runId || r.runId === runId)
+  );
 }
