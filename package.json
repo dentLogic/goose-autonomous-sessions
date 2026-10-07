@@ -55,5 +55,8 @@
     "adapters",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "devDependencies": {
+    "bun-types": "^1.4.2"
+  }
 }

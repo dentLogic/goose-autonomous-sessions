@@ -11,7 +11,7 @@
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
 [![Status: v1.0 STABLE](https://img.shields.io/badge/Status-v1.0%20STABLE-22C55E?style=flat-square)](#-roadmap)
-[![Tests: 191 passing](https://img.shields.io/badge/Tests-191%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Tests: 204 passing](https://img.shields.io/badge/Tests-204%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -184,8 +184,10 @@ Next.js app (Prisma/SQLite adapters), or a standalone script (in-memory adapters
 - ♾️ **No arbitrary session limit** — roll over 5 times or 500 times.
 - 🛡️ **Crash recovery** — state survives crashes, reboots, and Desktop restarts.
   Recovery never guesses; it uses `pendingSessionId` for idempotent transitions.
-- 🏠 **100 % local** — works with LM Studio or any local model provider. No
-  cloud calls, no API keys, no telemetry.
+- 🏠 **Local-first** — designed for LM Studio or any local model provider. The
+  controller itself makes no cloud calls; no API keys, no telemetry. (Note:
+  the controller calls the injected `generateHandoffResponse` strategy — if
+  you wire it to a cloud API, that's your choice.)
 - 🌍 **Global, not per-project** — enable once; it works across every repository.
 - ⚡ **Race-safe** — serialized transitions prevent double-rollover from
   concurrent context/turn-finish events.
@@ -895,18 +897,19 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v1.0 ships with **191 tests** covering the full spec:
+v1.0 ships with **204 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
 | `tests/api-stability.test.ts` | 24 | **v1.0**: frozen API surface contract — verifies all exports exist with correct types, marker strings frozen, IPC channels frozen |
+| `tests/install-cycle.test.ts` | 13 | **v1.0 audit**: clones Goose at pinned commit, runs install.sh, verifies patches land, runs uninstall.sh, verifies clean restore |
 | `tests/state-machine.test.ts` | 11 | start→working, threshold→pending, rollover, verification PASS/FAIL, duplicate prevention, stop semantics |
-| `tests/handoff.test.ts` | 14 | prompt builder, validation (8 cases), JSON parsing (fence-tolerant), serialization, objective stamping |
-| `tests/completion-detection.test.ts` | 10 | exact-line marker matching, malformed markers, natural-language rejection |
-| `tests/recovery.test.ts` | 11 | the full spec-36 decision tree (9 phases + edge cases) |
+| `tests/handoff.test.ts` | 15 | prompt builder, validation (8 cases), JSON parsing (fence-tolerant), serialization, objective stamping |
+| `tests/completion-detection.test.ts` | 11 | exact-line marker matching, malformed markers, natural-language rejection |
+| `tests/recovery.test.ts` | 9 | the full spec-36 decision tree (9 phases + edge cases) |
 | `tests/handoff-schema.test.ts` | 22 | custom schema extension, field override, schema-aware prompt/validate/serialize/parse |
-| `tests/rollover-policy.test.ts` | 29 | pure-function tests: context/turns/time/**cost** policies, OR semantics, budget |
-| `tests/v0.4-integration.test.ts` | 9 | controller integration: budget halts, turn-based rollover, per-session resets |
+| `tests/rollover-policy.test.ts` | 31 | pure-function tests: context/turns/time/**cost** policies, OR semantics, budget |
+| `tests/v0.4-integration.test.ts` | 7 | controller integration: budget halts, turn-based rollover, per-session resets |
 | `tests/v0.5-integration.test.ts` | 10 | cost-based rollover, cost accumulation, run resume (stop→resume→complete) |
 | `tests/v0.6-integration.test.ts` | 12 | cost run budget halts, webhook events (all 10 types), no-op when unconfigured |
 | `tests/v0.7-integration.test.ts` | 20 | HMAC sign/verify, event filtering, delivery log (skipped/failed/capped/by-runId) |
@@ -915,10 +918,10 @@ v1.0 ships with **191 tests** covering the full spec:
 
 ```bash
 $ bun test
-  191 pass
+  204 pass
   0 fail
-  500 expect() calls
-  Ran 191 tests across 13 files. [20.5s]
+  518 expect() calls
+  Ran 204 tests across 14 files. [50.6s]
 ```
 
 ### ⚡ Performance benchmarks
@@ -1064,17 +1067,20 @@ rationale.
 
 ## 🔒 Local-first & no cloud
 
-| Concern | Status |
-| --- | --- |
-| Handoffs transmitted externally | ❌ Never |
-| Credentials in handoffs | ❌ Never (handoffs summarize work, not terminal output) |
-| Cloud AI calls | ❌ None |
-| Telemetry / analytics | ❌ None |
-| State storage | ✅ Local app-data only |
-| Model provider | ✅ LM Studio or any local provider |
+| Concern | Status | Verified? |
+| --- | --- | --- |
+| Handoffs transmitted externally | ❌ Not by the controller | ✅ Verified — the controller has no network code; webhooks are opt-in and only fire if configured |
+| Credentials in handoffs | ⚠️ Not by design (handoffs summarize work, not terminal output) | ⚠️ Assumed — depends on the LLM honoring the handoff prompt; not enforced by the controller |
+| Cloud AI calls | ❌ None by the controller | ✅ Verified — the controller calls only the injected `generateHandoffResponse` strategy |
+| Telemetry / analytics | ❌ None | ✅ Verified — no telemetry code exists in the module |
+| State storage | ✅ Local (adapter-dependent) | ✅ Verified — the reference adapters write to local files only |
+| Model provider | ✅ LM Studio or any local provider | ⚠️ Assumed — the controller is provider-agnostic; actual LM Studio integration is documented but not tested against a live LM Studio instance |
 
-The handoff generator summarizes work rather than dumping terminal output, so
-secrets never leak into the handoff artifact.
+The handoff generator's prompt instructs the LLM to summarize work rather than
+dump terminal output. **However, the controller cannot guarantee the LLM
+won't include sensitive content in its handoff response** — it depends on the
+model following the prompt. If you need a hard guarantee, filter the handoff
+through a secret-scanning step before persisting it.
 
 ---
 

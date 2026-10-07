@@ -35,18 +35,17 @@ function makeController(run?: AutonomousRun | null) {
 async function setRun(run: Partial<AutonomousRun> & { runId: string }): Promise<void> {
   const full: AutonomousRun = {
     schemaVersion: 1,
-    runId: run.runId,
-    status: run.status ?? 'active',
-    phase: run.phase ?? 'working',
-    originalObjective: run.originalObjective ?? 'obj',
-    currentSessionId: run.currentSessionId ?? 's1',
-    rolloverPending: run.rolloverPending ?? false,
-    rolloverThreshold: run.rolloverThreshold ?? 0.75,
-    workerGeneration: run.workerGeneration ?? 1,
-    verificationAttempt: run.verificationAttempt ?? 0,
-    createdAt: run.createdAt ?? new Date().toISOString(),
-    updatedAt: run.updatedAt ?? new Date().toISOString(),
-    ...run,
+    status: 'active',
+    phase: 'working',
+    originalObjective: 'obj',
+    currentSessionId: 's1',
+    rolloverPending: false,
+    rolloverThreshold: 0.75,
+    workerGeneration: 1,
+    verificationAttempt: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...run, // spread first so explicit run.runId wins over the defaults above
   } as AutonomousRun;
   await inMemoryStore.saveRun(full);
 }

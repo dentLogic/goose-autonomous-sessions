@@ -33,7 +33,7 @@ function demoHmac() {
 }
 
 // ─── capturing notifier with signature + filter ────────────────────────────────
-const captured: { payload: WebhookPayload; signature?: string } = [];
+const captured: { payload: WebhookPayload; signature?: string }[] = [];
 
 async function capturingNotifier(payload: WebhookPayload): Promise<void> {
   // In a real setup, the notifier sends the signature via the

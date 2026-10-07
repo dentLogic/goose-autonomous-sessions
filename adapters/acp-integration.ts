@@ -24,7 +24,14 @@
 //     generateHandoffResponse: acpHandoffGenerator,
 //     sendPrompt: acpSendPrompt,
 //   });
+//
+// NOTE: The two imports below reference Goose Desktop's internal ACP modules
+// which only exist inside a Goose source checkout (ui/desktop/src/acp/). They
+// are NOT part of this repo. This file is a reference adapter — it only
+// compiles when placed inside Goose's source tree (which install.sh does).
+// @ts-ignore — Goose-internal module, available after install.sh copies this into ui/desktop/src/
 import { acpNewSession } from '../acp/sessions';
+// @ts-ignore — Goose-internal module, available after install.sh copies this into ui/desktop/src/
 import { acpPromptSession } from '../acp/prompt';
 
 /**

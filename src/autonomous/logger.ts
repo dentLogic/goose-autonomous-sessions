@@ -9,6 +9,7 @@ import type { LogEntry, LoggerAdapter } from './types';
 /** Lazy Prisma loader — throws if Prisma isn't configured. */
 async function getDb(): Promise<any> {
   try {
+    // @ts-ignore — path alias resolved by the host's tsconfig (Next.js host)
     const mod = await import('@/lib/db');
     return mod.db;
   } catch {
@@ -41,7 +42,7 @@ export async function appendLog(
       });
       if (oldest.length) {
         await db.autonomousLogRow.deleteMany({
-          where: { id: { in: oldest.map((r) => r.id) } },
+          where: { id: { in: oldest.map((r: { id: string }) => r.id) } },
         });
       }
     }
@@ -74,7 +75,7 @@ export async function getLogs(limit = 200, runId?: string): Promise<LogEntry[]> 
     orderBy: { ts: 'desc' },
     take: limit,
   });
-  return rows.map((r) => ({
+  return rows.map((r: { id: string; ts: Date; level: string; runId: string | null; message: string }) => ({
     id: r.id,
     ts: r.ts.toISOString(),
     level: r.level as LogEntry['level'],

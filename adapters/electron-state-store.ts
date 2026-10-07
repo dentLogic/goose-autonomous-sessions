@@ -9,7 +9,12 @@
 // Atomic writes: write to a temp file, fsync, then rename — so a crash never
 // leaves a half-written autonomous-state.json.
 //
+// NOTE: This file imports 'electron' which is only available in the Electron
+// main process. It is NOT included in the npm package (see .npmignore). For
+// standalone use, inject your own StateStoreAdapter (see examples/in-memory-adapters.ts).
+//
 // Spec sections 7, 8, 9, 17, 18, 33, 37, 62.
+// @ts-ignore — electron is a peer dependency provided by the host
 import { app } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

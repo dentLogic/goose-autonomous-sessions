@@ -13,8 +13,12 @@
     "declarationMap": true,
     "sourceMap": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "bun-types"],
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "baseUrl": "."
   },
-  "include": ["src/autonomous", "examples"],
+  "include": ["src/autonomous", "examples", "tests", "cli", "dashboard", "adapters", "benchmarks"],
   "exclude": ["node_modules"]
 }

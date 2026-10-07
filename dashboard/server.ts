@@ -60,6 +60,12 @@ interface RunState {
   lastError?: string;
   updatedAt?: string;
   createdAt?: string;
+  // v0.5+ fields
+  sessionCostCents?: number;
+  totalCostCents?: number;
+  turnsInCurrentSession?: number;
+  rolloverReason?: string;
+  phaseBeforeStop?: string;
 }
 
 interface SettingsState {
@@ -423,7 +429,7 @@ function checkAuth(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
 // ─── HTTP server ───────────────────────────────────────────────────────────────
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
   // Auth check (skip for the 401 response itself)

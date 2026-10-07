@@ -48,10 +48,10 @@ const WARMUP_ITERATIONS = 100;
 const MIN_ITERATIONS = 10_000;
 const MAX_DURATION_NS = 2_000_000_000n; // 2 seconds in nanoseconds
 
-/** High-resolution monotonic clock. Uses Bun.nanosecond() when available. */
+/** High-resolution monotonic clock. Uses Bun.nanoseconds() when available. */
 function nowNs(): bigint {
-  if (typeof Bun !== 'undefined' && typeof Bun.nanosecond === 'function') {
-    return Bun.nanosecond();
+  if (typeof Bun !== 'undefined' && typeof Bun.nanoseconds === 'function') {
+    return BigInt(Bun.nanoseconds());
   }
   // Fallback: Date.now only has millisecond resolution, but multiplied to ns.
   return BigInt(Date.now()) * 1_000_000n;

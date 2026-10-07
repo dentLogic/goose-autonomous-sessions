@@ -13,7 +13,10 @@ import type { AutonomousRun, AutonomousSettings, SessionRecord, StateStoreAdapte
 /** Lazy Prisma loader — throws if Prisma isn't configured. */
 async function getDb(): Promise<any> {
   try {
-    // Dynamic import so the module loads even without @/lib/db
+    // Dynamic import so the module loads even without @/lib/db.
+    // The @ts-ignore is required because this path only exists in the Next.js
+    // host that provides the Prisma client; the portable repo doesn't have it.
+    // @ts-ignore — path alias resolved by the host's tsconfig
     const mod = await import('@/lib/db');
     return mod.db;
   } catch {
@@ -121,7 +124,11 @@ export async function getSessions(runId?: string): Promise<SessionRecord[]> {
     where: runId ? { runId } : undefined,
     orderBy: { createdAt: 'asc' },
   });
-  return rows.map((r) => ({
+  return rows.map((r: {
+    sessionId: string; runId: string; role: string; generation: number;
+    parentSessionId: string | null; name: string; status: string;
+    objective: string; handoffJson: string | null; createdAt: Date; updatedAt: Date;
+  }) => ({
     sessionId: r.sessionId,
     runId: r.runId,
     role: r.role as SessionRecord['role'],
