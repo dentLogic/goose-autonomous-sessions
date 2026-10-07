@@ -18,6 +18,8 @@ export interface RolloverEvaluationInput {
   sessionStartedAt: string;
   /** Current time (ISO). Passed in so tests can be deterministic. */
   now: string;
+  /** v0.5: estimated token cost (cents) accumulated in the current session. */
+  sessionCostCents?: number;
 }
 
 export interface RolloverEvaluation {
@@ -43,12 +45,13 @@ export function resolvePolicy(
     contextPercent: policy.contextPercent ?? legacyThreshold,
     maxTurnsPerSession: policy.maxTurnsPerSession,
     maxMinutesPerSession: policy.maxMinutesPerSession,
+    maxCostCentsPerSession: policy.maxCostCentsPerSession,
   };
 }
 
 /**
  * Evaluate the rollover policy against the current session state.
- * Returns the FIRST tripped policy (priority: context > turns > time).
+ * Returns the FIRST tripped policy (priority: context > turns > time > cost).
  * If nothing tripped, returns { shouldRollOver: false }.
  */
 export function evaluateRollover(
@@ -99,6 +102,20 @@ export function evaluateRollover(
         };
       }
     }
+  }
+
+  // 4. cost (v0.5)
+  if (
+    typeof policy.maxCostCentsPerSession === 'number' &&
+    policy.maxCostCentsPerSession > 0 &&
+    typeof input.sessionCostCents === 'number' &&
+    input.sessionCostCents >= policy.maxCostCentsPerSession
+  ) {
+    return {
+      shouldRollOver: true,
+      reason: 'cost',
+      description: `cost ${input.sessionCostCents}¢ ≥ ${policy.maxCostCentsPerSession}¢`,
+    };
   }
 
   return { shouldRollOver: false, description: 'no policy tripped' };

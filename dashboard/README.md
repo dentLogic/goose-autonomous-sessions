@@ -29,6 +29,57 @@ bun dashboard/server.ts
 # → dashboard live at http://localhost:7878
 ```
 
+## Authentication (v0.5)
+
+For remote/shared deployments, set a dashboard token:
+
+```bash
+AUTONOMOUS_DASHBOARD_TOKEN=your-secret bun dashboard/server.ts
+```
+
+All requests must then include the token as either:
+- A Bearer token: `Authorization: Bearer your-secret`
+- A query param: `http://localhost:7878?token=your-secret`
+
+Without the token, requests get `401 Unauthorized`. With no token set, auth is disabled (local dev).
+
+## API endpoints (v0.5)
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/` | GET | HTML dashboard |
+| `/api/state` | GET | Full state JSON (run + settings + sessions + logs) |
+| `/api/metrics` | GET | Compact metrics for monitoring/alerting (Prometheus-friendly) |
+| `/api/export` | GET | Full run data as downloadable JSON (with `Content-Disposition`) |
+| `/api/health` | GET | Health check (`{ ok, uptime, dataDir }`) for load balancers |
+| `/api/events` | GET | Server-Sent Events stream (pushes `change` events) |
+
+### Metrics example
+
+```bash
+$ curl http://localhost:7878/api/metrics
+{
+  "active": 1,
+  "completed": 0,
+  "worker_generation": 3,
+  "verification_attempt": 1,
+  "context_usage_pct": 42,
+  "rollover_pending": 0,
+  "session_count": 4,
+  "session_cost_cents": 35,
+  "total_cost_cents": 127,
+  "phase": "working",
+  ...
+}
+```
+
+### Export example
+
+```bash
+$ curl -O -J http://localhost:7878/api/export
+# → downloads goose-autonomous-abc12345-1737123456789.json
+```
+
 ## Custom data directory
 
 If your Goose data lives somewhere else:

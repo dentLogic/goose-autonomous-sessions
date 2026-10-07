@@ -78,18 +78,26 @@ export interface AutonomousRun {
   currentSessionStartedAt?: string;
   /** Why rollover is pending (which policy tripped). Cleared after rollover. */
   rolloverReason?: RolloverReason;
+  // ── v0.5: cost tracking ───────────────────────────────────────────────────
+  /** Estimated token cost (in cents) accumulated in the CURRENT session. Resets on rollover. */
+  sessionCostCents?: number;
+  /** Total estimated token cost (in cents) across the ENTIRE run. Never resets. */
+  totalCostCents?: number;
+  /** v0.5: The phase before the run was stopped, so resumeRun can restore it. */
+  phaseBeforeStop?: AutonomousPhase;
 }
 
 // ── v0.4: configurable rollover policy ────────────────────────────────────────
 //
 // v0.1–v0.3 supported only context-percentage rollover. v0.4 adds optional
-// turn-count and time-based policies. All enabled policies are combined with
-// OR semantics — any one tripping marks rollover pending.
+// turn-count and time-based policies. v0.5 adds cost-based. All enabled
+// policies are combined with OR semantics — any one tripping marks rollover
+// pending.
 //
 // A policy field is "enabled" when it is a positive number. Zero / undefined
 // means the policy is disabled.
 
-export type RolloverReason = 'context' | 'turns' | 'time';
+export type RolloverReason = 'context' | 'turns' | 'time' | 'cost';
 
 export interface RolloverPolicy {
   /**
@@ -103,6 +111,12 @@ export interface RolloverPolicy {
   maxTurnsPerSession?: number;
   /** Max minutes per session before rollover. 0/undefined = disabled. */
   maxMinutesPerSession?: number;
+  /**
+   * v0.5: Max estimated token cost (in cents) per session before rollover.
+   * 0/undefined = disabled. The controller tracks sessionCostCents on the run;
+   * the host reports cost via onTurnFinished's AgentTurn.
+   */
+  maxCostCentsPerSession?: number;
 }
 
 export interface AutonomousSettings {
@@ -164,6 +178,8 @@ export interface AgentTurn {
   contextAfter: number;
   statusMarker?: WorkerStatus | VerificationStatus;
   ts: string;
+  /** v0.5: estimated token cost for THIS turn, in cents. Optional. */
+  costCents?: number;
 }
 
 // ---------------------------------------------------------------------------

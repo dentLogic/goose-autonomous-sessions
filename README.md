@@ -10,8 +10,8 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.4](https://img.shields.io/badge/Status-v0.4-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 99 passing](https://img.shields.io/badge/Tests-99%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.5](https://img.shields.io/badge/Status-v0.5-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 116 passing](https://img.shields.io/badge/Tests-116%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
@@ -491,6 +491,38 @@ worker 3 → COMPLETE → ❌ Verification budget exhausted (2/2). Run halted.
 
 `0` / `undefined` = unlimited (v0.1–v0.3 behavior — backward compatible).
 
+### 💰 Cost-based rollover (v0.5)
+
+Track token cost and roll over when a session exceeds a cost budget:
+
+```ts
+settings: {
+  rolloverPolicy: {
+    contextPercent: 0.75,
+    maxTurnsPerSession: 10,
+    maxMinutesPerSession: 30,
+    maxCostCentsPerSession: 50,  // ← roll over when session costs > 50¢
+  },
+}
+```
+
+The controller tracks `sessionCostCents` (per-session, resets on rollover) and `totalCostCents` (run-total, never resets). The host reports per-turn cost via `AgentTurn.costCents`. Priority when multiple policies trip: `context > turns > time > cost`.
+
+### ▶️ Run resume (v0.5)
+
+Stopped runs can now be explicitly resumed (fills the spec §44 gap):
+
+```ts
+await controller.stopRun();   // halt — current turn finishes, no future rollovers
+// ... inspect state, take a break, etc. ...
+await controller.resumeRun(); // resume — restores the pre-stop phase
+```
+
+- Restores the run to `active` + the phase it was in when stopped
+- If stopped mid-rollover, resumes in `working` with rollover re-pending
+- Preserves handoff, session lineage, and logs across stop/resume
+- Throws if the run isn't in `stopped` status
+
 ---
 
 ## 🛡️ Crash recovery
@@ -665,7 +697,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.4 ships with **99 tests** covering the full spec:
+v0.5 ships with **116 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -674,15 +706,16 @@ v0.4 ships with **99 tests** covering the full spec:
 | `tests/completion-detection.test.ts` | 10 | exact-line marker matching, malformed markers, natural-language rejection |
 | `tests/recovery.test.ts` | 11 | the full spec-36 decision tree (9 phases + edge cases) |
 | `tests/handoff-schema.test.ts` | 22 | custom schema extension, field override, schema-aware prompt/validate/serialize/parse |
-| `tests/rollover-policy.test.ts` | 22 | pure-function tests: context/turns/time policies, OR semantics, budget |
+| `tests/rollover-policy.test.ts` | 29 | pure-function tests: context/turns/time/**cost** policies, OR semantics, budget |
 | `tests/v0.4-integration.test.ts` | 9 | controller integration: budget halts, turn-based rollover, per-session resets |
+| `tests/v0.5-integration.test.ts` | 10 | cost-based rollover, cost accumulation, run resume (stop→resume→complete) |
 
 ```bash
 $ bun test
-  99 pass
+  116 pass
   0 fail
-  211 expect() calls
-  Ran 99 tests across 7 files. [43.00ms]
+  260 expect() calls
+  Ran 116 tests across 8 files. [45.00ms]
 ```
 
 CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
@@ -869,11 +902,18 @@ secrets never leak into the handoff artifact.
 - ✅ npm publication readiness (`.npmignore`, `prepublishOnly`, tightened `files` field)
 - ✅ 99-test suite (68 + 31 new)
 
-### v0.5+ — future
+### v0.5 — cost tracking + run resume + production dashboard ✅
+
+- ✅ Cost-based rollover policy (`maxCostCentsPerSession`) — 4th rollover dimension, tracks per-session + total cost
+- ✅ Run resume (`resumeRun()`) — explicit resume of a stopped run, restores pre-stop phase
+- ✅ Dashboard hardening: Bearer token auth + `/api/metrics` + `/api/export` + `/api/health`
+- ✅ 116-test suite (99 + 17 new)
+
+### v0.6+ — future
 
 - ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
-- ⏳ Web dashboard with auth (current monitor is local-only, read-only)
-- ⏳ Configurable rollover policy: time-based already in v0.4; explore cost-based (token $)
+- ⏳ Cost-based verification budget (halt when total run cost exceeds a budget)
+- ⏳ Webhook notifications (notify on completion/failure)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.

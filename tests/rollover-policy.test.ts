@@ -213,3 +213,102 @@ describe('verificationBudgetExceeded', () => {
     expect(verificationBudgetExceeded(10, 5)).toBe(true);
   });
 });
+
+// ── v0.5: cost policy ────────────────────────────────────────────────────────
+
+describe('evaluateRollover — cost policy (v0.5)', () => {
+  const policy: RolloverPolicy = { maxCostCentsPerSession: 50 };
+
+  it('trips when session cost >= max', () => {
+    const r = evaluateRollover(policy, input({ contextRatio: 0, turns: 0 }));
+    // need to pass sessionCostCents
+    const r2 = evaluateRollover(policy, {
+      contextRatio: 0,
+      turnsInSession: 0,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:00:00.000Z',
+      sessionCostCents: 50,
+    });
+    expect(r2.shouldRollOver).toBe(true);
+    expect(r2.reason).toBe('cost');
+  });
+
+  it('trips above the budget', () => {
+    const r = evaluateRollover(policy, {
+      contextRatio: 0,
+      turnsInSession: 0,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:00:00.000Z',
+      sessionCostCents: 75,
+    });
+    expect(r.shouldRollOver).toBe(true);
+    expect(r.reason).toBe('cost');
+  });
+
+  it('does NOT trip below the budget', () => {
+    const r = evaluateRollover(policy, {
+      contextRatio: 0,
+      turnsInSession: 0,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:00:00.000Z',
+      sessionCostCents: 49,
+    });
+    expect(r.shouldRollOver).toBe(false);
+  });
+
+  it('does not trip when maxCostCentsPerSession is 0 (disabled)', () => {
+    const r = evaluateRollover({ maxCostCentsPerSession: 0 }, {
+      contextRatio: 0,
+      turnsInSession: 0,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:00:00.000Z',
+      sessionCostCents: 1000,
+    });
+    expect(r.shouldRollOver).toBe(false);
+  });
+
+  it('does not trip when sessionCostCents is undefined', () => {
+    const r = evaluateRollover(policy, {
+      contextRatio: 0,
+      turnsInSession: 0,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:00:00.000Z',
+      // sessionCostCents omitted
+    });
+    expect(r.shouldRollOver).toBe(false);
+  });
+});
+
+describe('evaluateRollover — all four policies combined (v0.5)', () => {
+  const policy: RolloverPolicy = {
+    contextPercent: 0.75,
+    maxTurnsPerSession: 5,
+    maxMinutesPerSession: 30,
+    maxCostCentsPerSession: 50,
+  };
+
+  it('cost is lowest priority (trips last)', () => {
+    // all four would trip — context wins
+    const r = evaluateRollover(policy, {
+      contextRatio: 0.8,
+      turnsInSession: 10,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T02:00:00.000Z',
+      sessionCostCents: 100,
+    });
+    expect(r.shouldRollOver).toBe(true);
+    expect(r.reason).toBe('context');
+  });
+
+  it('cost trips when context/turns/time do not', () => {
+    const r = evaluateRollover(policy, {
+      contextRatio: 0.5,
+      turnsInSession: 2,
+      sessionStartedAt: '2025-01-01T00:00:00.000Z',
+      now: '2025-01-01T00:10:00.000Z',
+      sessionCostCents: 55,
+    });
+    expect(r.shouldRollOver).toBe(true);
+    expect(r.reason).toBe('cost');
+  });
+});

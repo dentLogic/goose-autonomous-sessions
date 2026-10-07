@@ -108,6 +108,9 @@ function freshRun(input: {
     turnsInCurrentSession: 0,
     currentSessionStartedAt: ts,
     rolloverReason: undefined,
+    // v0.5: cost tracking
+    sessionCostCents: 0,
+    totalCostCents: 0,
   };
 }
 
@@ -182,11 +185,56 @@ export class AutonomousSessionController {
     const run = await this.store.getRun();
     if (!run) return null;
     // Spec 43: must not delete sessions, handoff, or logs.
+    // v0.5: preserve the pre-stop phase so resumeRun can restore it.
+    run.phaseBeforeStop = run.phase;
     run.status = 'stopped';
     run.phase = 'stopped';
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info('run stopped by user', run.runId);
+    return run;
+  }
+
+  /**
+   * v0.5: Resume a stopped run.
+   *
+   * Spec §44 said "A stopped run should not automatically resume. The user must
+   * explicitly start/resume it." — this method is that explicit resume.
+   *
+   * - Only works on a `stopped` run.
+   * - Restores the run to `active` + the phase it was in when stopped (or
+   *   `working` if it was stopped mid-rollover).
+   * - Does NOT clear the handoff, sessions, or logs (preserves inspection state).
+   * - The current session is reconnected — the host's live session is still valid.
+   */
+  async resumeRun(): Promise<AutonomousRun | null> {
+    const run = await this.store.getRun();
+    if (!run) return null;
+    if (run.status !== 'stopped') {
+      throw new Error(`Cannot resume a run in status '${run.status}' (only 'stopped' runs can be resumed).`);
+    }
+    run.status = 'active';
+    // Restore the phase from before the stop (or default to working)
+    const restoredPhase = run.phaseBeforeStop ?? 'working';
+    // If we were stopped mid-rollover, resume in 'working' with rollover re-pending
+    if (restoredPhase === 'handoff' || restoredPhase === 'creating-session') {
+      run.phase = 'working';
+      run.rolloverPending = true;
+      run.rolloverReason = undefined;
+      run.transitionId = undefined;
+      run.transitionStage = undefined;
+    } else {
+      run.phase = restoredPhase;
+    }
+    run.phaseBeforeStop = undefined;
+    // Reset the session-start clock so time-based policies don't immediately trip
+    run.currentSessionStartedAt = nowISO();
+    run.updatedAt = nowISO();
+    await this.store.saveRun(run);
+    await this.logger.info(
+      `run resumed — phase: ${run.phase}, worker gen: ${run.workerGeneration}`,
+      run.runId
+    );
     return run;
   }
 
@@ -232,6 +280,7 @@ export class AutonomousSessionController {
         turnsInSession: run.turnsInCurrentSession ?? 0,
         sessionStartedAt: run.currentSessionStartedAt ?? run.createdAt,
         now: nowISO(),
+        sessionCostCents: run.sessionCostCents,
       });
       if (evaluation.shouldRollOver) {
         run.rolloverPending = true;
@@ -291,6 +340,12 @@ export class AutonomousSessionController {
       // v0.4: increment the per-session turn counter for worker turns
       run.turnsInCurrentSession = (run.turnsInCurrentSession ?? 0) + 1;
 
+      // v0.5: accumulate token cost for this turn (if the host reported one)
+      if (typeof turn.costCents === 'number' && turn.costCents > 0) {
+        run.sessionCostCents = (run.sessionCostCents ?? 0) + turn.costCents;
+        run.totalCostCents = (run.totalCostCents ?? 0) + turn.costCents;
+      }
+
       // 2. worker completion (precedence over rollover — spec 22)
       const w = detectWorkerStatus(lastAssistantText);
       if (w === 'complete') {
@@ -298,8 +353,8 @@ export class AutonomousSessionController {
         return run;
       }
 
-      // v0.4: re-evaluate the rollover policy at the turn boundary. Turns and
-      // time policies can only trip here; the context policy trips in
+      // v0.4/v0.5: re-evaluate the rollover policy at the turn boundary. Turns,
+      // time, and cost policies can only trip here; the context policy trips in
       // onContextUsage. If rollover is already pending (context tripped), keep it.
       if (!run.rolloverPending) {
         const settings = this.effectiveSettings({
@@ -314,6 +369,7 @@ export class AutonomousSessionController {
           turnsInSession: run.turnsInCurrentSession,
           sessionStartedAt: run.currentSessionStartedAt ?? run.createdAt,
           now: nowISO(),
+          sessionCostCents: run.sessionCostCents,
         });
         if (evaluation.shouldRollOver) {
           run.rolloverPending = true;
@@ -420,6 +476,7 @@ export class AutonomousSessionController {
     // v0.4: reset per-session tracking for the fresh worker
     run.turnsInCurrentSession = 0;
     run.currentSessionStartedAt = nowISO();
+    run.sessionCostCents = 0; // v0.5: reset per-session cost (totalCostCents is preserved)
     run.phase = 'working';
     run.transitionStage = 'session-active';
     run.transitionId = undefined;
@@ -485,6 +542,7 @@ export class AutonomousSessionController {
     // v0.4: reset per-session tracking for the verifier session
     run.turnsInCurrentSession = 0;
     run.currentSessionStartedAt = nowISO();
+    run.sessionCostCents = 0; // v0.5: reset per-session cost (totalCostCents is preserved)
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info(
@@ -586,6 +644,7 @@ export class AutonomousSessionController {
     // v0.4: reset per-session tracking for the fresh worker
     run.turnsInCurrentSession = 0;
     run.currentSessionStartedAt = nowISO();
+    run.sessionCostCents = 0; // v0.5: reset per-session cost (totalCostCents is preserved)
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
     await this.logger.info(

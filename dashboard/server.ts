@@ -25,6 +25,7 @@ import { EventEmitter } from 'node:events';
 
 const DATA_DIR = process.env.AUTONOMOUS_DATA_DIR ?? defaultDataDir();
 const PORT = Number(process.env.PORT ?? 7878);
+const AUTH_TOKEN = process.env.AUTONOMOUS_DASHBOARD_TOKEN ?? ''; // empty = no auth
 
 function defaultDataDir(): string {
   const home = os.homedir();
@@ -405,10 +406,27 @@ sse.addEventListener('change', () => refresh());
 </html>`;
 }
 
+// ─── auth middleware ───────────────────────────────────────────────────────────
+//
+// If AUTONOMOUS_DASHBOARD_TOKEN is set, all requests must include it as a
+// bearer token OR as the ?token= query param. Empty token = no auth (local dev).
+function checkAuth(req: http.IncomingMessage, res: http.ServerResponse, url: URL): boolean {
+  if (!AUTH_TOKEN) return true; // auth disabled
+  const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  const queryToken = url.searchParams.get('token');
+  if (bearer === AUTH_TOKEN || queryToken === AUTH_TOKEN) return true;
+  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Unauthorized. Set AUTONOMOUS_DASHBOARD_TOKEN or pass ?token=...' }));
+  return false;
+}
+
 // ─── HTTP server ───────────────────────────────────────────────────────────────
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+
+  // Auth check (skip for the 401 response itself)
+  if (!checkAuth(req, res, url)) return;
 
   if (url.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -419,6 +437,64 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/state') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(readAllState()));
+    return;
+  }
+
+  // v0.5: metrics endpoint — compact summary for monitoring/alerting
+  if (url.pathname === '/api/metrics') {
+    const state = readAllState();
+    const run = state.run;
+    const metrics = {
+      // Prometheus-style key/value for easy scraping
+      active: run?.status === 'active' ? 1 : 0,
+      completed: run?.status === 'completed' ? 1 : 0,
+      stopped: run?.status === 'stopped' ? 1 : 0,
+      errored: run?.status === 'error' ? 1 : 0,
+      worker_generation: run?.workerGeneration ?? 0,
+      verification_attempt: run?.verificationAttempt ?? 0,
+      context_usage_pct: run?.contextLimit
+        ? Math.round(((run.contextUsage ?? 0) / run.contextLimit) * 100)
+        : 0,
+      rollover_pending: run?.rolloverPending ? 1 : 0,
+      session_count: state.sessions.length,
+      log_count: state.logs.length,
+      // v0.5: cost metrics
+      session_cost_cents: run?.sessionCostCents ?? 0,
+      total_cost_cents: run?.totalCostCents ?? 0,
+      // timestamps
+      updated_at: run?.updatedAt ?? null,
+      run_id: run?.runId ?? null,
+      phase: run?.phase ?? 'idle',
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(metrics, null, 2));
+    return;
+  }
+
+  // v0.5: export endpoint — full run data as downloadable JSON
+  if (url.pathname === '/api/export') {
+    const state = readAllState();
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      dataDir: state.dataDir,
+      run: state.run,
+      settings: state.settings,
+      sessions: state.sessions,
+      logs: state.logs,
+    };
+    const filename = `goose-autonomous-${state.run?.runId?.slice(0, 8) ?? 'no-run'}-${Date.now()}.json`;
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.end(JSON.stringify(exportData, null, 2));
+    return;
+  }
+
+  // v0.5: health endpoint — for load balancers / process managers
+  if (url.pathname === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, uptime: process.uptime(), dataDir: DATA_DIR }));
     return;
   }
 
@@ -448,6 +524,8 @@ server.listen(PORT, () => {
   console.log(`   ─────────────────────────────────`);
   console.log(`   dashboard:  http://localhost:${PORT}`);
   console.log(`   data dir:   ${DATA_DIR}`);
+  console.log(`   auth:       ${AUTH_TOKEN ? 'enabled (Bearer token)' : 'disabled (set AUTONOMOUS_DASHBOARD_TOKEN)'}`);
+  console.log(`   endpoints:  /  /api/state  /api/metrics  /api/export  /api/health  /api/events`);
   console.log(`   auto-refresh: 1s + SSE live updates`);
   console.log(`\n   Press Ctrl+C to stop.\n`);
 });

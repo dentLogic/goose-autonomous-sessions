@@ -5,6 +5,55 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2025-01-19
+
+### Added — cost tracking + run resume + production dashboard
+
+- **Cost-based rollover policy** (`RolloverPolicy.maxCostCentsPerSession`):
+  - 4th rollover dimension: roll over when the estimated token cost of a session exceeds a budget
+  - The controller tracks `sessionCostCents` (per-session, resets on rollover) + `totalCostCents` (run-total, never resets)
+  - The host reports per-turn cost via `AgentTurn.costCents`
+  - Priority when multiple policies trip: `context > turns > time > cost`
+  - Backward compatible: if `maxCostCentsPerSession` is omitted, no cost tracking occurs
+
+- **Run resume** (`controller.resumeRun()`):
+  - Fills the spec §44 gap: "A stopped run should not automatically resume. The user must explicitly start/resume it."
+  - `stopRun()` now preserves the pre-stop phase in `phaseBeforeStop`
+  - `resumeRun()` restores the run to `active` + the phase it was in when stopped
+  - If stopped mid-rollover (`handoff` / `creating-session`), resumes in `working` with rollover re-pending
+  - Throws if the run isn't in `stopped` status
+  - Preserves handoff, session lineage, and logs across stop/resume
+  - Resets `currentSessionStartedAt` so time-based policies don't immediately trip
+
+- **Dashboard hardening** (`dashboard/server.ts`):
+  - **Bearer token auth**: set `AUTONOMOUS_DASHBOARD_TOKEN` to require auth on all endpoints
+  - **`/api/metrics`** endpoint: compact Prometheus-friendly JSON (active/completed/stopped/errored flags, worker_generation, verification_attempt, context_usage_pct, session_cost_cents, total_cost_cents, phase, etc.)
+  - **`/api/export`** endpoint: full run data as downloadable JSON (with `Content-Disposition` header)
+  - **`/api/health`** endpoint: `{ ok, uptime, dataDir }` for load balancers / process managers
+  - Auth works via both `Authorization: Bearer <token>` header and `?token=` query param
+
+- **17 new tests** (116 total):
+  - `tests/rollover-policy.test.ts` — 7 new cost-policy tests (trips at/above/below budget, disabled, undefined cost, combined priority)
+  - `tests/v0.5-integration.test.ts` — 10 new controller integration tests (cost rollover, cost accumulation, resume from stopped, resume from verifying, resume preserves state, resume + complete)
+
+### Changed
+
+- `src/autonomous/types.ts` — added `maxCostCentsPerSession` to `RolloverPolicy`, `cost` to `RolloverReason`, `sessionCostCents` + `totalCostCents` + `phaseBeforeStop` to `AutonomousRun`, `costCents` to `AgentTurn`
+- `src/autonomous/rollover-policy.ts` — `evaluateRollover` now evaluates the cost policy (priority 4); `resolvePolicy` propagates `maxCostCentsPerSession`
+- `src/autonomous/controller.ts` — `onTurnFinished` accumulates `turn.costCents` into session + total cost; `onContextUsage` + `onTurnFinished` pass `sessionCostCents` to the evaluator; `stopRun` preserves `phaseBeforeStop`; `resumeRun` method added; `sessionCostCents` reset on every rollover
+- `dashboard/server.ts` — auth middleware + 3 new endpoints (`/api/metrics`, `/api/export`, `/api/health`)
+- `dashboard/README.md` — documented auth + all endpoints with examples
+
+### Test suite
+
+- **116 tests, all passing** (99 from v0.4 + 17 new)
+- Ran in ~45ms
+
+### Intentionally not in v0.5
+
+- macOS / Windows support (Linux-first by user request)
+- npm package publication (workflow ready — add `NPM_TOKEN` secret)
+
 ## [0.4.0] — 2025-01-18
 
 ### Added — safety valves + rollover policies + npm readiness
