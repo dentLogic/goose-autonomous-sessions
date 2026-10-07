@@ -5,6 +5,66 @@ All notable changes to `goose-autonomous-sessions` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2025-01-17
+
+### Added — configurability + observability + CI
+
+- **Configurable handoff schema** (`src/autonomous/handoff-schema.ts`):
+  - `HandoffField` type with `name`, `type` (`string` | `string[]` | `test[]`), `required`, `description`, `maxLen`, `maxItems`, `itemMax`, `label`
+  - `HandoffSchema` = array of fields
+  - `defaultHandoffSchema()` returns the 9 built-in fields (backward compatible)
+  - `createHandoffSchema(base, extensions)` — extends the default with custom fields (extensions override built-ins with the same name)
+  - `buildHandoffPromptFromSchema(objective, schema)` — generates a schema-aware prompt
+  - `validateHandoffAgainstSchema(handoff, schema)` — schema-aware validation
+  - `serializeHandoffWithSchema(handoff, schema)` — schema-aware compact text serialization
+  - `parseHandoffResponseWithSchema(raw, schema)` — fence-tolerant schema-aware parsing
+  - `coerceToHandoff(parsed, objective)` — extracts built-in fields from a custom-schema handoff
+  - `ControllerDeps.handoffSchema` — optional; if omitted, uses the default (backward compatible)
+  - The controller's `generateValidatedHandoff` + prompt builders use the schema when provided
+
+- **Standalone monitoring dashboard** (`dashboard/`):
+  - `dashboard/server.ts` — a zero-dependency Bun server that reads the JSON state files written by the Electron adapter and serves a live dashboard
+  - Live auto-refresh (1s polling) + instant updates via Server-Sent Events (SSE)
+  - State panel, context gauge with threshold marker, handoff viewer, session timeline, streaming event log
+  - Runs alongside Goose Desktop — monitor from any browser (or via SSH tunnel from another machine)
+  - `bun dashboard/server.ts` → `http://localhost:7878`
+
+- **CI workflow** (`.github/workflows/ci.yml`):
+  - Runs on every push/PR to main
+  - Steps: checkout → setup Bun → install → `bun test` → `tsc --noEmit` → standalone demo smoke test
+  - Bonus job: clones Goose at the pinned commit + validates all patches
+
+- **npm publish workflow** (`.github/workflows/publish.yml`):
+  - Triggers on `v*` tag push
+  - Runs tests + typecheck + `npm pack --dry-run` verification
+  - Publishes to npm if `NPM_TOKEN` secret is set (skips gracefully if not)
+
+- **22 new schema tests** (`tests/handoff-schema.test.ts`):
+  - default schema (9 fields, backward compat)
+  - custom field extension (required/optional, type checking, size limits)
+  - field override (same-name extension replaces built-in)
+  - schema-aware prompt builder, serializer, parser
+  - `coerceToHandoff` extraction
+
+### Changed
+
+- `src/autonomous/controller.ts` now imports + uses the handoff-schema module; `ControllerDeps` accepts an optional `handoffSchema`
+- `src/autonomous/index.ts` exports the new `handoff-schema` module
+- `package.json` bumped to 0.3.0; added `test`, `dashboard` scripts
+- `tsconfig.json` includes `tests` dir
+
+### Test suite
+
+- **68 tests, all passing** (46 from v0.2 + 22 new schema tests)
+- Ran in ~38ms
+
+### Intentionally not in v0.3
+
+- macOS / Windows support (explicitly deferred — Linux-first by user request)
+- npm package publication (workflow is ready; publish when `NPM_TOKEN` is configured)
+- Verification retry budget
+- Web dashboard with auth (the monitor is read-only + local-only)
+
 ## [0.2.0] — 2025-01-16
 
 ### Added — Goose Desktop integration

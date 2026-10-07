@@ -1,0 +1,58 @@
+# .github/workflows/publish.yml
+# Publishes to npm when a v* tag is pushed.
+#
+# NOTE: This workflow requires an NPM_TOKEN secret. Without it, the publish
+# step is skipped (the package is built + dry-run verified only).
+#
+# To enable:
+#   1. Create an npm access token at https://www.npmjs.com/settings/~/tokens
+#   2. Add it as a repository secret named NPM_TOKEN
+#   3. Tag a release:  git tag v0.3.0 && git push origin v0.3.0
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install || true
+
+      - name: Run tests
+        run: bun test
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Verify package contents
+        run: bunx npm pack --dry-run
+
+      - name: Publish to npm
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          bunx npm publish --access public
+
+      - name: Publish skipped (no NPM_TOKEN)
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: |
+          echo "⚠️  NPM_TOKEN secret not set — publish skipped."
+          echo "    The package was built + verified but not published."
+          echo "    To publish: add the NPM_TOKEN secret and re-run."

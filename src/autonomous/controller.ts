@@ -18,6 +18,15 @@ import {
   serializeHandoff,
   stampObjective,
 } from './handoff';
+import {
+  buildHandoffPromptFromSchema,
+  coerceToHandoff,
+  defaultHandoffSchema,
+  isValidHandoffAgainstSchema,
+  parseHandoffResponseWithSchema,
+  serializeHandoffWithSchema,
+  type HandoffSchema,
+} from './handoff-schema';
 import { navigateToSession } from './navigation';
 import { createFreshSession, formatSessionName } from './sessionManager';
 import type {
@@ -53,6 +62,11 @@ export interface ControllerDeps {
   generateHandoffResponse: HandoffGenerator;
   /** Submit a prompt into a (fresh) ACP session. */
   sendPrompt: ContinuationPromptSender;
+  /**
+   * Optional custom handoff schema (v0.3). If omitted, the default 9-field
+   * schema is used (backward compatible with v0.1/v0.2).
+   */
+  handoffSchema?: HandoffSchema;
 }
 
 const nowISO = () => new Date().toISOString();
@@ -89,10 +103,13 @@ export class AutonomousSessionController {
   /** Exposed so recovery.ts can reuse the same adapters. */
   readonly store: StateStoreAdapter;
   readonly logger: LoggerAdapter;
+  /** The active handoff schema (custom or default). */
+  readonly handoffSchema: HandoffSchema;
 
   constructor(private deps: ControllerDeps) {
     this.store = deps.store;
     this.logger = deps.logger;
+    this.handoffSchema = deps.handoffSchema ?? defaultHandoffSchema();
   }
 
   async startRun(input: {
@@ -306,7 +323,7 @@ export class AutonomousSessionController {
     await this.logger.info(`${created.name} created (session ${created.sessionId})`, run.runId);
 
     // Spec 29, 30: send continuation prompt, then navigate.
-    const prompt = buildContinuationPrompt(run.originalObjective, handoff);
+    const prompt = buildContinuationPrompt(run.originalObjective, handoff, this.deps.handoffSchema);
     await this.deps.sendPrompt({
       sessionId: created.sessionId,
       prompt,
@@ -383,7 +400,7 @@ export class AutonomousSessionController {
     });
     await this.store.updateSessionStatus(run.currentSessionId, 'completed');
 
-    const prompt = buildVerificationPrompt(run.originalObjective, finalHandoff);
+    const prompt = buildVerificationPrompt(run.originalObjective, finalHandoff, this.deps.handoffSchema);
     await this.deps.sendPrompt({
       sessionId: created.sessionId,
       prompt,
@@ -449,7 +466,7 @@ export class AutonomousSessionController {
       handoff: failHandoff,
     });
 
-    const prompt = buildContinuationPrompt(run.originalObjective, failHandoff);
+    const prompt = buildContinuationPrompt(run.originalObjective, failHandoff, this.deps.handoffSchema);
     await this.deps.sendPrompt({
       sessionId: created.sessionId,
       prompt,
@@ -471,12 +488,16 @@ export class AutonomousSessionController {
     );
   }
 
-  /** Spec 24, 26, 53: generate + validate, retry once on failure. */
+  /** Spec 24, 26, 53: generate + validate, retry once on failure.
+   *  v0.3: uses the custom handoff schema if one was provided. */
   private async generateValidatedHandoff(
     run: AutonomousRun,
     sessionId: string
   ): Promise<Handoff | null> {
-    const prompt = buildHandoffPrompt(run.originalObjective);
+    const useCustomSchema = !!this.deps.handoffSchema;
+    const prompt = useCustomSchema
+      ? buildHandoffPromptFromSchema(run.originalObjective, this.handoffSchema)
+      : buildHandoffPrompt(run.originalObjective);
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const raw = await this.deps.generateHandoffResponse({
@@ -485,9 +506,16 @@ export class AutonomousSessionController {
           prompt,
         });
         if (!raw) continue;
-        const parsed = parseHandoffResponse(raw);
-        if (parsed && isValidHandoff(parsed)) {
-          return stampObjective(parsed, run.originalObjective);
+        if (useCustomSchema) {
+          const parsed = parseHandoffResponseWithSchema(raw, this.handoffSchema);
+          if (parsed && isValidHandoffAgainstSchema(parsed, this.handoffSchema)) {
+            return stampObjective(coerceToHandoff(parsed, run.originalObjective), run.originalObjective);
+          }
+        } else {
+          const parsed = parseHandoffResponse(raw);
+          if (parsed && isValidHandoff(parsed)) {
+            return stampObjective(parsed, run.originalObjective);
+          }
         }
         await this.logger.warn(`handoff parse/validation failed (attempt ${attempt})`, run.runId);
       } catch (e) {
@@ -513,7 +541,14 @@ export class AutonomousSessionController {
 
 // ---- prompt builders --------------------------------------------------------
 
-function buildContinuationPrompt(objective: string, handoff: Handoff): string {
+function buildContinuationPrompt(
+  objective: string,
+  handoff: Handoff,
+  schema?: HandoffSchema
+): string {
+  const serialized = schema
+    ? serializeHandoffWithSchema(handoff as unknown as Record<string, unknown>, schema)
+    : serializeHandoff(handoff);
   return [
     'You are continuing an autonomous software-development task.',
     '',
@@ -529,7 +564,7 @@ function buildContinuationPrompt(objective: string, handoff: Handoff): string {
     objective,
     '',
     'HANDOFF:',
-    serializeHandoff(handoff),
+    serialized,
     '',
     'Continue the work now.',
     '',
@@ -541,7 +576,14 @@ function buildContinuationPrompt(objective: string, handoff: Handoff): string {
   ].join('\n');
 }
 
-function buildVerificationPrompt(objective: string, handoff: Handoff): string {
+function buildVerificationPrompt(
+  objective: string,
+  handoff: Handoff,
+  schema?: HandoffSchema
+): string {
+  const serialized = schema
+    ? serializeHandoffWithSchema(handoff as unknown as Record<string, unknown>, schema)
+    : serializeHandoff(handoff);
   return [
     'You are an INDEPENDENT verification agent for an autonomous software-development task.',
     '',
@@ -559,7 +601,7 @@ function buildVerificationPrompt(objective: string, handoff: Handoff): string {
     objective,
     '',
     'WORKER HANDOFF (treat as claims, verify against the real repo):',
-    serializeHandoff(handoff),
+    serialized,
     '',
     'If everything is genuinely complete, end your response with exactly:',
     'AUTONOMOUS_VERIFICATION: PASS',

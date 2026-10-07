@@ -10,9 +10,10 @@
 [![Local-first](https://img.shields.io/badge/Architecture-Local%20first-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![No cloud](https://img.shields.io/badge/Cloud-None-22C55E?style=flat-square)](#-local-first--no-cloud)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
-[![Status: v0.2](https://img.shields.io/badge/Status-v0.2-FFB000?style=flat-square)](#-roadmap)
-[![Tests: 46 passing](https://img.shields.io/badge/Tests-46%20passing-22C55E?style=flat-square)](#-test-suite)
+[![Status: v0.3](https://img.shields.io/badge/Status-v0.3-FFB000?style=flat-square)](#-roadmap)
+[![Tests: 68 passing](https://img.shields.io/badge/Tests-68%20passing-22C55E?style=flat-square)](#-test-suite)
 [![Patches: 5 validated](https://img.shields.io/badge/Patches-5%20validated-646CFF?style=flat-square)](#-install--uninstall)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](https://github.com/dentLogic/goose-autonomous-sessions/actions)
 
 </div>
 
@@ -409,6 +410,53 @@ The controller validates every field before accepting it. If the handoff is
 malformed, generation is retried once; if it still fails, the run enters a
 controlled `error` state rather than risking false continuity.
 
+### 🎛️ Custom handoff fields (v0.3)
+
+Need domain-specific fields beyond the built-in 9? Define a custom schema:
+
+```ts
+import {
+  AutonomousSessionController,
+  defaultHandoffSchema,
+  createHandoffSchema,
+} from 'goose-autonomous-sessions';
+
+const schema = createHandoffSchema(defaultHandoffSchema(), [
+  {
+    name: 'securityReview',
+    type: 'string',
+    required: false,
+    description: 'brief security note (threats, mitigations)',
+    maxLen: 1000,
+    label: 'SECURITY REVIEW',
+  },
+  {
+    name: 'breakingChanges',
+    type: 'string[]',
+    required: true,
+    description: 'list of breaking API/behavior changes',
+    maxItems: 32,
+    itemMax: 500,
+    label: 'BREAKING CHANGES',
+  },
+]);
+
+const controller = new AutonomousSessionController({
+  store: yourStore,
+  logger: yourLogger,
+  generateHandoffResponse: yourGenerator,
+  sendPrompt: yourSender,
+  handoffSchema: schema, // ← v0.3: custom fields
+});
+```
+
+The controller now:
+- generates a handoff prompt that tells the LLM to produce `securityReview` + `breakingChanges`
+- validates the response against the extended schema
+- serializes the custom fields into the compact handoff format
+
+If no `handoffSchema` is provided, the default 9-field schema is used — fully backward compatible with v0.1/v0.2.
+
 ---
 
 ## 🛡️ Crash recovery
@@ -570,7 +618,7 @@ Restores the pre-installation state from the backup branch. Your Goose data, nor
 ### Run the tests
 
 ```bash
-bun test    # 46 tests across state machine, handoff, completion, recovery
+bun test    # 68 tests across state machine, handoff, completion, recovery, schema
 ```
 
 ### Try the zero-dep demo (no Goose required)
@@ -583,7 +631,7 @@ bun examples/standalone-demo.ts
 
 ## 🧪 Test suite
 
-v0.2 ships with **46 tests** covering the full spec:
+v0.3 ships with **68 tests** covering the full spec:
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -591,14 +639,17 @@ v0.2 ships with **46 tests** covering the full spec:
 | `tests/handoff.test.ts` | 14 | prompt builder, validation (8 cases), JSON parsing (fence-tolerant), serialization, objective stamping |
 | `tests/completion-detection.test.ts` | 10 | exact-line marker matching, malformed markers, natural-language rejection |
 | `tests/recovery.test.ts` | 11 | the full spec-36 decision tree (9 phases + edge cases) |
+| `tests/handoff-schema.test.ts` | 22 | custom schema extension, field override, schema-aware prompt/validate/serialize/parse |
 
 ```bash
 $ bun test
-  46 pass
+  68 pass
   0 fail
-  99 expect() calls
-  Ran 46 tests across 4 files. [30.00ms]
+  143 expect() calls
+  Ran 68 tests across 5 files. [38.00ms]
 ```
+
+CI runs these on every push/PR — see [the Actions tab](https://github.com/dentLogic/goose-autonomous-sessions/actions).
 
 ---
 
@@ -615,6 +666,37 @@ adapters/
 ```
 
 The controller itself (`src/autonomous/controller.ts`) has **zero** hard dependencies — it only calls the injected `store`, `logger`, `generateHandoffResponse`, and `sendPrompt`. This means the same controller class runs unchanged inside Goose Desktop, a Next.js app, or a standalone script. See [`adapters/README.md`](adapters/README.md) for the wiring diagram.
+
+---
+
+## 📊 Monitoring dashboard (v0.3)
+
+The "walk away" companion tool. Start a long-running task in Goose Desktop, then
+monitor it live from any browser:
+
+```bash
+bun dashboard/server.ts
+# → dashboard live at http://localhost:7878
+```
+
+**What it shows:**
+- State panel — phase, worker generation, verification attempt, rollover status, last error
+- Context gauge — live usage % with threshold marker
+- Handoff viewer — the current structured handoff
+- Session timeline — worker → verification lineage with status badges
+- Event log — streaming compact log (info/warn/error)
+
+**Live updates:** auto-refresh every 1 second + instant push via Server-Sent Events (SSE).
+
+**Remote monitoring** via SSH tunnel:
+```bash
+ssh -L 7878:localhost:7878 user@your-server
+# Then open http://localhost:7878 on your laptop
+```
+
+The dashboard reads the JSON state files that the Electron adapter writes — it's
+a pure reader, never modifies state. Zero external dependencies. See
+[`dashboard/README.md`](dashboard/README.md) for details.
 
 ---
 
@@ -735,13 +817,20 @@ secrets never leak into the handoff artifact.
 - ✅ ACP integration reference (`acpHandoffGenerator` + `acpSendPrompt`)
 - ✅ 46-test suite (state machine, handoff, completion, recovery)
 
-### v0.3+ — quality of life
+### v0.3 — configurability + observability + CI ✅
 
-- ⏳ macOS support
-- ⏳ Configurable handoff schema (custom fields)
-- ⏳ Verification retry budget (opt-in)
-- ⏳ npm package publication
-- ⏳ Web dashboard for monitoring long runs
+- ✅ Configurable handoff schema (`handoff-schema.ts`) — custom fields, field override, schema-aware prompt/validate/serialize/parse
+- ✅ Standalone monitoring dashboard (`dashboard/server.ts`) — live, zero-dep, SSE, SSH-tunnelable
+- ✅ CI workflow (`.github/workflows/ci.yml`) — tests + typecheck + demo smoke test + patch validation
+- ✅ npm publish workflow (`.github/workflows/publish.yml`) — ready when `NPM_TOKEN` is set
+- ✅ 68-test suite (46 from v0.2 + 22 new schema tests)
+
+### v0.4+ — future
+
+- ⏳ Verification retry budget (opt-in max verification attempts)
+- ⏳ npm package publication (workflow ready — add `NPM_TOKEN` secret)
+- ⏳ Web dashboard with auth (current monitor is local-only, read-only)
+- ⏳ Configurable rollover policy (e.g., time-based, not just context %)
 
 See [open issues](https://github.com/dentLogic/goose-autonomous-sessions/issues)
 and [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.
