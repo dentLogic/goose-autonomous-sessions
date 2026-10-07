@@ -1,0 +1,17 @@
+# patches/SERIES — apply order for goose-autonomous-sessions v0.2
+#
+# Apply with:  git am $(cat SERIES)        # if rebasing onto Goose main
+#        or:   for p in $(cat SERIES); do git apply "$p"; done
+#
+# Pinned Goose commit: ce0c4900837a51b2ae50ce0df1484c34a1be754e
+# (repo: aaif-goose/goose, path: ui/desktop/src/)
+#
+# Each patch is minimal: just an import + a hook call into the
+# autonomous controller (ui/desktop/src/autonomous/, installed by install.sh).
+# No Goose logic is rewritten.
+
+0001-add-autonomous-event.patch
+0002-add-settings-field.patch
+0003-wire-useChatSession.patch
+0004-wire-navigation.patch
+0005-add-electron-ipc.patch

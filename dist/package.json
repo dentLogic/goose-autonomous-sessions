@@ -1,0 +1,62 @@
+{
+  "name": "goose-autonomous-sessions",
+  "version": "1.0.0",
+  "description": "Global autonomous-session controller for Goose Desktop — unlimited context rollover via structured state handoffs, with independent verification. Local-only, no cloud.",
+  "license": "MIT",
+  "author": "dentLogic <dentLogic@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dentLogic/goose-autonomous-sessions.git"
+  },
+  "homepage": "https://github.com/dentLogic/goose-autonomous-sessions#readme",
+  "bugs": {
+    "url": "https://github.com/dentLogic/goose-autonomous-sessions/issues"
+  },
+  "keywords": [
+    "goose",
+    "autonomous-agents",
+    "context-rollover",
+    "local-llm",
+    "lm-studio",
+    "acp",
+    "ai-coding",
+    "session-handoff",
+    "electron",
+    "desktop",
+    "local-first",
+    "long-running-tasks",
+    "webhooks",
+    "state-machine",
+    "crash-recovery"
+  ],
+  "type": "module",
+  "main": "src/autonomous/index.ts",
+  "exports": {
+    ".": "./src/autonomous/index.ts",
+    "./types": "./src/autonomous/types.ts",
+    "./webhooks": "./src/autonomous/webhooks.ts"
+  },
+  "scripts": {
+    "demo": "bun examples/standalone-demo.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/autonomous examples tests",
+    "dashboard": "bun dashboard/server.ts",
+    "cli": "bun cli/goose-autonomous.ts",
+    "prepublishOnly": "bun test && tsc --noEmit",
+    "prepack": "echo 'Verifying npm pack contents...' && npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src/autonomous",
+    "examples",
+    "adapters",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "bun-types": "^1.4.2"
+  }
+}
