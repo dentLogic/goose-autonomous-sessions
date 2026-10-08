@@ -2,7 +2,7 @@
 //
 // LoggerAdapter backed by the Electron main-process JSONL log.
 // Delegates to appendElectronLog (batched, rotated) in electron-state-store.ts.
-import type { LoggerAdapter } from '../src/autonomous/types';
+import type { LoggerAdapter } from '../autonomous/types';
 import { appendElectronLog } from './electron-state-store';
 
 export const electronLogger: LoggerAdapter = {

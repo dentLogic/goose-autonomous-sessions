@@ -14,7 +14,7 @@
 import { ipcMain } from 'electron';
 import {
   IPC,
-} from '../src/autonomous/constants';
+} from '../autonomous/constants';
 import {
   electronStateStore,
   getElectronLogs,

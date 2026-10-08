@@ -24,8 +24,8 @@ import type {
   AutonomousSettings,
   SessionRecord,
   StateStoreAdapter,
-} from '../src/autonomous/types';
-import { AUTONOMOUS_SCHEMA_VERSION, DEFAULT_SETTINGS, MAX_LOG_ROWS } from '../src/autonomous/constants';
+} from '../autonomous/types';
+import { AUTONOMOUS_SCHEMA_VERSION, DEFAULT_SETTINGS, MAX_LOG_ROWS } from '../autonomous/constants';
 
 interface LogRow {
   id: string;
