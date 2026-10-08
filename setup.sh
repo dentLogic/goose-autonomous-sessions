@@ -227,38 +227,40 @@ export function initController(deps: Pick<ControllerDeps, 'store' | 'logger' | '
 }
 
 // ---- RENDERER: IPC proxy that forwards to the main process ----
-// When running in the renderer (browser), window.electron is available
-// (exposed by preload.ts). We use it to call the main process controller.
-// When running in the main process (or standalone), we use _controller directly.
-const _isRenderer = typeof window !== 'undefined' && (window as any).electron;
+// Check window.electron at CALL TIME (not module load time) because
+// the preload script may not have injected window.electron yet when
+// this module is first imported by Vite.
+function _hasElectron(): boolean {
+  return typeof window !== 'undefined' && !!(window as any).electron;
+}
 
 export const autonomousController = {
   startRun: async (input: { sessionId: string; objective: string; settings: any }) => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousStartRun(input.sessionId, input.objective);
     }
     return _controller?.startRun(input) ?? null;
   },
   onContextUsage: async (sessionId: string, used: number, limit: number) => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousOnContextUsage(sessionId, used, limit);
     }
     return _controller?.onContextUsage(sessionId, used, limit) ?? null;
   },
   onTurnFinished: async (sessionId: string, lastText: string, turn: any) => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousOnTurnFinished(sessionId, lastText, turn);
     }
     return _controller?.onTurnFinished(sessionId, lastText, turn) ?? null;
   },
   stopRun: async () => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousStopRun();
     }
     return _controller?.stopRun() ?? null;
   },
   resumeRun: async () => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousResumeRun();
     }
     return _controller?.resumeRun() ?? null;
@@ -267,7 +269,7 @@ export const autonomousController = {
     if (_controller) await _controller.clearAll();
   },
   getState: async () => {
-    if (_isRenderer) {
+    if (_hasElectron()) {
       return (window as any).electron.autonomousGetStateLive();
     }
     return _controller?.getState() ?? null;
