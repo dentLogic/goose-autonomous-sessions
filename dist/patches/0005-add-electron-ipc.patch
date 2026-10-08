@@ -20,7 +20,7 @@ index 45a4a7a..02a8913 100644
    } catch (error) {
      dialog.showErrorBox('Goose Error', `Failed to create main window: ${error}`);
 diff --git a/ui/desktop/src/preload.ts b/ui/desktop/src/preload.ts
-index 261bff1..1d1dcc9 100644
+index 261bff1..68655b1 100644
 --- a/ui/desktop/src/preload.ts
 +++ b/ui/desktop/src/preload.ts
 @@ -133,6 +133,12 @@ type ElectronAPI = {
@@ -42,10 +42,10 @@ index 261bff1..1d1dcc9 100644
      return ipcRenderer.invoke('set-setting', key, value);
 +  // goose-autonomous-sessions: delegate to the dedicated IPC handlers
 +  autonomousGetState: () => ipcRenderer.invoke('autonomous:get-state'),
-+  autonomousSetState: (state: unknown) => ipcRenderer.invoke('autonomous:set-state', state),
++  autonomousSetState: (state) => ipcRenderer.invoke('autonomous:set-state', state),
 +  autonomousClearState: () => ipcRenderer.invoke('autonomous:clear-state'),
 +  autonomousGetSettings: () => ipcRenderer.invoke('autonomous:get-settings'),
-+  autonomousSetSettings: (settings: unknown) => ipcRenderer.invoke('autonomous:set-settings', settings),
++  autonomousSetSettings: (settings) => ipcRenderer.invoke('autonomous:set-settings', settings),
    },
    getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
    getAcpUrl: () => ipcRenderer.invoke('get-acp-url'),
