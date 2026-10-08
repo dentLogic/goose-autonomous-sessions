@@ -46,7 +46,7 @@ echo ""
 # Step 1: Prerequisites
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 1/8: Prerequisites ───"
+bold "─── Step 1/9: Prerequisites ───"
 echo ""
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -101,7 +101,7 @@ echo ""
 # Step 2: Clone Goose source
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 2/8: Clone Goose source ───"
+bold "─── Step 2/9: Clone Goose source ───"
 echo ""
 
 if [[ -d "$CLONE_DIR/.git" ]]; then
@@ -117,7 +117,7 @@ echo ""
 # Step 3: Reset to clean state at the pinned commit
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 3/8: Reset to pinned commit ───"
+bold "─── Step 3/9: Reset to pinned commit ───"
 echo ""
 
 cd "$CLONE_DIR"
@@ -153,7 +153,7 @@ echo ""
 # Step 4: Install autonomous module + adapters
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 4/8: Install autonomous module ───"
+bold "─── Step 4/9: Install autonomous module ───"
 echo ""
 
 MODULE_SRC="$SCRIPT_DIR/src/autonomous"
@@ -167,7 +167,10 @@ cp "$ADAPTER_SRC"/*.ts "$ADAPTER_DST/"
 green "✓ Module: $(ls "$MODULE_DST"/*.ts | wc -l) files"
 green "✓ Adapters: $(ls "$ADAPTER_DST"/*.ts | wc -l) files"
 
-# Generate the controller singleton
+# Generate the controller singleton — NOTE: does NOT re-export stateStore or
+# logger because those reference @/lib/db (a Next.js path alias that doesn't
+# exist inside Goose Desktop's Vite build). Goose uses the Electron adapters
+# (electron-state-store + electron-logger) instead.
 cat > "$MODULE_DST/index.ts" <<'TS'
 import { AutonomousSessionController } from './controller';
 import { electronStateStore } from '../adapters/electron-state-store';
@@ -186,11 +189,12 @@ export * from './rollover-policy';
 export * from './webhooks';
 export * from './contextMonitor';
 export * from './completionDetector';
-export * from './stateStore';
 export * from './sessionManager';
 export * from './navigation';
 export * from './recovery';
-export * from './logger';
+// NOTE: stateStore.ts and logger.ts are NOT exported here — they reference
+// @/lib/db which is a Next.js path alias. Goose Desktop uses the Electron
+// adapters instead (electron-state-store.ts, electron-logger.ts).
 TS
 green "✓ Controller singleton wired"
 echo ""
@@ -199,7 +203,7 @@ echo ""
 # Step 5: Apply patches
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 5/8: Apply patches ───"
+bold "─── Step 5/9: Apply patches ───"
 echo ""
 
 PATCH_DIR="$SCRIPT_DIR/patches"
@@ -213,23 +217,44 @@ done
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Step 6: Install dependencies + build (from workspace root ui/)
+# Step 6: Build Goose binary + install dependencies + build Desktop
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 6/8: Install dependencies + build ───"
+bold "─── Step 6/9: Build Goose binary + install deps ───"
 echo ""
 
-# Goose uses a pnpm workspace at ui/ — must install from there
+# First: build the Goose Rust binary (the Desktop needs it to run)
+cd "$CLONE_DIR"
+if [[ ! -f target/release/goose && ! -f target/debug/goose ]]; then
+  echo "  Building Goose binary (Rust — this takes several minutes the first time)..."
+  cargo build --release 2>&1 | tail -5
+  if [[ ! -f target/release/goose ]]; then
+    yellow "  Release build failed, trying debug build..."
+    cargo build 2>&1 | tail -5
+  fi
+  if [[ -f target/release/goose ]]; then
+    green "✓ Goose binary: target/release/goose"
+  elif [[ -f target/debug/goose ]]; then
+    green "✓ Goose binary: target/debug/goose"
+  else
+    yellow "⚠  Goose binary build failed. The Desktop will start but may not"
+    echo "     be able to run AI tasks. Build manually later:  cd $CLONE_DIR && cargo build --release"
+  fi
+else
+  green "✓ Goose binary already built"
+fi
+echo ""
+
+# Second: install JS dependencies
 cd "$CLONE_DIR/ui"
 
-# ALWAYS clean node_modules from prior attempts (they may have been built
-# with a different Node version or failed mid-install)
+# ALWAYS clean node_modules from prior attempts
 if [[ -d node_modules ]]; then
   yellow "  Cleaning node_modules from prior attempt..."
   rm -rf node_modules goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules
 fi
 
-echo "  Installing dependencies (this may take a few minutes)..."
+echo "  Installing JS dependencies..."
 pnpm install 2>&1 | tail -5
 
 if [[ $? -ne 0 ]]; then
@@ -259,7 +284,7 @@ echo ""
 # Step 7: Create desktop shortcuts + application menu entries
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 7/8: Create desktop shortcuts ───"
+bold "─── Step 7/9: Create desktop shortcuts ───"
 echo ""
 
 # Create a launcher script that Goose Desktop can use
@@ -335,7 +360,7 @@ echo ""
 # Step 8: Launch
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 8/8: Launch ───"
+bold "─── Step 8/9: Launch ───"
 echo ""
 
 green "✓ Everything is ready!"
