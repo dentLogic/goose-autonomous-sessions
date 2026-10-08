@@ -88,12 +88,35 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 green "✓ cargo"
 
-# Build tools for native modules
-if ! command -v make >/dev/null 2>&1; then
-  yellow "  build-essential not found — installing..."
-  sudo apt-get install -y -qq build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev >/dev/null 2>&1 || true
+# Build tools + system libraries for Goose's native crates
+yellow "  Checking system libraries for Goose build..."
+sudo apt-get update -qq 2>/dev/null
+sudo apt-get install -y -qq \
+  build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev \
+  libclang-dev clang libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev libdbus-1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+  >/dev/null 2>&1 || true
+
+# Export LIBCLANG_PATH so bindgen can find libclang
+export LIBCLANG_PATH="$(find /usr -name 'libclang.so*' -path '*/lib/*' 2>/dev/null | head -1 | xargs dirname 2>/dev/null)"
+if [[ -z "$LIBCLANG_PATH" ]]; then
+  # Common fallback locations
+  for p in /usr/lib/llvm-14/lib /usr/lib/llvm-15/lib /usr/lib/llvm-16/lib /usr/lib/llvm-17/lib /usr/lib/llvm-18/lib /usr/lib/x86_64-linux-gnu; do
+    if [[ -f "$p/libclang.so" || -f "$p/libclang.so.1" ]]; then
+      export LIBCLANG_PATH="$p"
+      break
+    fi
+  done
 fi
-green "✓ build tools"
+if [[ -n "$LIBCLANG_PATH" ]]; then
+  green "✓ libclang found at: $LIBCLANG_PATH"
+else
+  yellow "⚠  libclang not found — installing libclang-dev..."
+  sudo apt-get install -y -qq libclang-dev >/dev/null 2>&1 || true
+  export LIBCLANG_PATH="$(find /usr -name 'libclang.so*' -path '*/lib/*' 2>/dev/null | head -1 | xargs dirname 2>/dev/null)"
+  [[ -n "$LIBCLANG_PATH" ]] && green "✓ libclang found at: $LIBCLANG_PATH" || yellow "⚠  libclang still not found — cargo build may fail"
+fi
+green "✓ build tools + system libraries"
 
 echo ""
 
@@ -227,7 +250,8 @@ echo ""
 cd "$CLONE_DIR"
 if [[ ! -f target/release/goose && ! -f target/debug/goose ]]; then
   echo "  Building Goose binary (Rust — this takes several minutes the first time)..."
-  cargo build --release 2>&1 | tail -5
+  # LIBCLANG_PATH must be set for bindgen to find libclang
+  LIBCLANG_PATH="$LIBCLANG_PATH" cargo build --release 2>&1 | tail -10
   if [[ ! -f target/release/goose ]]; then
     yellow "  Release build failed, trying debug build..."
     cargo build 2>&1 | tail -5
