@@ -23,13 +23,13 @@ function demoHmac() {
   console.log('\n\x1b[1m─── HMAC signature demo ───\x1b[0m\n');
   const secret = 'my-webhook-secret';
   const body = JSON.stringify({ event: 'run.completed', runId: 'abc-123' });
-  const signature = signPayload(secret, body);
+  const signature = await signPayload(secret, body);
   console.log(`  body:      ${body}`);
   console.log(`  secret:    ${secret}`);
   console.log(`  signature: ${signature}`);
-  console.log(`  verify (correct secret): ${verifySignature(secret, body, signature) ? '✓ valid' : '✗ invalid'}`);
-  console.log(`  verify (wrong secret):   ${verifySignature('wrong', body, signature) ? '✓ valid' : '✗ invalid'}`);
-  console.log(`  verify (tampered body):  ${verifySignature(secret, '{"event":"run.failed"}', signature) ? '✓ valid' : '✗ invalid'}`);
+  console.log(`  verify (correct secret): ${await verifySignature(secret, body, signature) ? '✓ valid' : '✗ invalid'}`);
+  console.log(`  verify (wrong secret):   ${await verifySignature('wrong', body, signature) ? '✓ valid' : '✗ invalid'}`);
+  console.log(`  verify (tampered body):  ${await verifySignature(secret, '{"event":"run.failed"}', signature) ? '✓ valid' : '✗ invalid'}`);
 }
 
 // ─── capturing notifier with signature + filter ────────────────────────────────
@@ -40,8 +40,8 @@ async function capturingNotifier(payload: WebhookPayload): Promise<void> {
   // X-Goose-Autonomous-Signature header. Here we capture + verify.
   const secret = 'demo-secret';
   const body = JSON.stringify(payload);
-  const signature = signPayload(secret, body);
-  const valid = verifySignature(secret, body, signature);
+  const signature = await signPayload(secret, body);
+  const valid = await verifySignature(secret, body, signature);
   captured.push({ payload, signature });
   await consoleLogger.info(
     `[webhook] ${payload.event} → signature ${valid ? '✓ verified' : '✗ invalid'}`
@@ -133,8 +133,8 @@ async function main() {
   if (captured.length > 0) {
     const { payload, signature } = captured[0];
     const body = JSON.stringify(payload);
-    const valid = verifySignature('demo-secret', body, signature!);
-    const invalid = verifySignature('wrong-secret', body, signature!);
+    const valid = await verifySignature('demo-secret', body, signature!);
+    const invalid = await verifySignature('wrong-secret', body, signature!);
     console.log(`  event:     ${payload.event}`);
     console.log(`  signature: ${signature}`);
     console.log(`  verify with correct secret: ${valid ? '✓ accepted' : '✗ rejected'}`);

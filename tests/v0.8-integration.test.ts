@@ -176,23 +176,23 @@ describe('v0.8: webhook delivery log shape', () => {
 });
 
 describe('v0.8: signPayload + verifySignature (re-exported helpers)', () => {
-  it('signPayload produces sha256= prefixed hex', () => {
-    const sig = signPayload('secret', '{"event":"test"}');
+  it('signPayload produces sha256= prefixed hex', async () => {
+    const sig = await signPayload('secret', '{"event":"test"}');
     expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/);
   });
 
-  it('verifySignature round-trips correctly', () => {
+  it('verifySignature round-trips correctly', async () => {
     const body = '{"event":"run.completed","runId":"abc"}';
-    const sig = signPayload('my-secret', body);
-    expect(verifySignature('my-secret', body, sig)).toBe(true);
-    expect(verifySignature('wrong', body, sig)).toBe(false);
+    const sig = await signPayload('my-secret', body);
+    expect(await verifySignature('my-secret', body, sig)).toBe(true);
+    expect(await verifySignature('wrong', body, sig)).toBe(false);
   });
 
-  it('verifySignature handles edge cases', () => {
-    expect(verifySignature('s', 'body', null)).toBe(false);
-    expect(verifySignature('s', 'body', undefined)).toBe(false);
-    expect(verifySignature('s', 'body', '')).toBe(false);
-    expect(verifySignature('s', 'body', 'sha256=short')).toBe(false);
-    expect(verifySignature('s', 'body', 'not-prefixed')).toBe(false);
+  it('verifySignature handles edge cases', async () => {
+    expect(await verifySignature('s', 'body', null)).toBe(false);
+    expect(await verifySignature('s', 'body', undefined)).toBe(false);
+    expect(await verifySignature('s', 'body', '')).toBe(false);
+    expect(await verifySignature('s', 'body', 'sha256=short')).toBe(false);
+    expect(await verifySignature('s', 'body', 'not-prefixed')).toBe(false);
   });
 });

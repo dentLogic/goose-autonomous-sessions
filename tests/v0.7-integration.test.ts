@@ -60,44 +60,44 @@ describe('HMAC signing', () => {
   const secret = 'my-webhook-secret';
   const body = JSON.stringify({ event: 'run.started', runId: 'abc' });
 
-  it('signs a payload with sha256= prefix', () => {
-    const sig = signPayload(secret, body);
+  it('signs a payload with sha256= prefix', async () => {
+    const sig = await signPayload(secret, body);
     expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/);
   });
 
-  it('produces different signatures for different secrets', () => {
-    const sig1 = signPayload('secret1', body);
-    const sig2 = signPayload('secret2', body);
+  it('produces different signatures for different secrets', async () => {
+    const sig1 = await signPayload('secret1', body);
+    const sig2 = await signPayload('secret2', body);
     expect(sig1).not.toBe(sig2);
   });
 
-  it('produces different signatures for different bodies', () => {
-    const sig1 = signPayload(secret, '{"a":1}');
-    const sig2 = signPayload(secret, '{"a":2}');
+  it('produces different signatures for different bodies', async () => {
+    const sig1 = await signPayload(secret, '{"a":1}');
+    const sig2 = await signPayload(secret, '{"a":2}');
     expect(sig1).not.toBe(sig2);
   });
 
-  it('verifySignature accepts a valid signature', () => {
-    const sig = signPayload(secret, body);
-    expect(verifySignature(secret, body, sig)).toBe(true);
+  it('verifySignature accepts a valid signature', async () => {
+    const sig = await signPayload(secret, body);
+    expect(await verifySignature(secret, body, sig)).toBe(true);
   });
 
-  it('verifySignature rejects a wrong secret', () => {
-    const sig = signPayload(secret, body);
-    expect(verifySignature('wrong-secret', body, sig)).toBe(false);
+  it('verifySignature rejects a wrong secret', async () => {
+    const sig = await signPayload(secret, body);
+    expect(await verifySignature('wrong-secret', body, sig)).toBe(false);
   });
 
-  it('verifySignature rejects a tampered body', () => {
-    const sig = signPayload(secret, body);
-    expect(verifySignature(secret, '{"event":"run.failed"}', sig)).toBe(false);
+  it('verifySignature rejects a tampered body', async () => {
+    const sig = await signPayload(secret, body);
+    expect(await verifySignature(secret, '{"event":"run.failed"}', sig)).toBe(false);
   });
 
-  it('verifySignature rejects missing/malformed signatures', () => {
-    expect(verifySignature(secret, body, null)).toBe(false);
-    expect(verifySignature(secret, body, undefined)).toBe(false);
-    expect(verifySignature(secret, body, '')).toBe(false);
-    expect(verifySignature(secret, body, 'not-sha256-prefixed')).toBe(false);
-    expect(verifySignature(secret, body, 'sha256=tooshort')).toBe(false);
+  it('verifySignature rejects missing/malformed signatures', async () => {
+    expect(await verifySignature(secret, body, null)).toBe(false);
+    expect(await verifySignature(secret, body, undefined)).toBe(false);
+    expect(await verifySignature(secret, body, '')).toBe(false);
+    expect(await verifySignature(secret, body, 'not-sha256-prefixed')).toBe(false);
+    expect(await verifySignature(secret, body, 'sha256=tooshort')).toBe(false);
   });
 });
 

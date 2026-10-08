@@ -11,7 +11,12 @@
 //
 // Backward compatible: string[] webhooks (v0.6) are normalized to WebhookConfig[]
 // with no events filter + no secret.
-import { createHmac, randomUUID } from 'crypto';
+//
+// NOTE: We use dynamic imports for Node's 'crypto' module so this file loads
+// in both Node.js (main process) and browser (renderer) environments.
+// Vite externalizes Node built-ins for browser compat — a top-level import
+// would break the renderer. The createHmac + randomUUID calls are only
+// invoked at runtime in the main process.
 import type {
   LoggerAdapter,
   WebhookConfig,
@@ -19,6 +24,32 @@ import type {
   WebhookEvent,
   WebhookPayload,
 } from './types';
+
+/** Lazy crypto loader — works in Node.js; returns null in browser. */
+async function getCrypto(): Promise<{ createHmac: any; randomUUID: any } | null> {
+  try {
+    // @ts-ignore — dynamic import of Node built-in; fails silently in browser
+    const crypto = await import('crypto');
+    return crypto;
+  } catch {
+    // Browser environment — use Web Crypto API as fallback
+    return null;
+  }
+}
+
+/** UUID generator that works in both Node.js and browser. */
+function uuid(): string {
+  // Node.js: crypto.randomUUID
+  // Browser: globalThis.crypto.randomUUID (modern browsers)
+  // Fallback: Math.random-based pseudo-UUID
+  const g = globalThis as any;
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export type WebhookNotifier = (payload: WebhookPayload) => Promise<void>;
 
@@ -77,33 +108,36 @@ export function createWebhookNotifier(
 /**
  * Compute the HMAC-SHA256 signature for a payload body.
  * Returns the hex digest prefixed with "sha256=".
+ * Uses Node's crypto (main process) or Web Crypto API (browser).
  */
-export function signPayload(secret: string, body: string): string {
-  const hmac = createHmac('sha256', secret);
-  hmac.update(body);
-  return `sha256=${hmac.digest('hex')}`;
+export async function signPayload(secret: string, body: string): Promise<string> {
+  // Try Node's createHmac first (main process)
+  const nodeCrypto = await getCrypto();
+  if (nodeCrypto?.createHmac) {
+    const hmac = nodeCrypto.createHmac('sha256', secret);
+    hmac.update(body);
+    return `sha256=${hmac.digest('hex')}`;
+  }
+  // Fallback: Web Crypto API (browser / Electron renderer)
+  const enc = new TextEncoder();
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await globalThis.crypto.subtle.sign('HMAC', key, enc.encode(body));
+  const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `sha256=${hex}`;
 }
 
 /**
  * Verify a webhook signature (receiver-side helper).
- * Uses timingSafeEqual to prevent timing attacks.
- *
- * Example (on the receiving end):
- *   import { verifySignature } from 'goose-autonomous-sessions';
- *   const body = await req.text();
- *   const sig = req.headers.get('X-Goose-Autonomous-Signature');
- *   if (!verifySignature(SECRET, body, sig)) {
- *     return res.status(401).json({ error: 'Invalid signature' });
- *   }
+ * Uses timing-safe comparison to prevent timing attacks.
  */
-export function verifySignature(secret: string, body: string, signature: string | null | undefined): boolean {
+export async function verifySignature(secret: string, body: string, signature: string | null | undefined): Promise<boolean> {
   if (!signature || !signature.startsWith('sha256=')) return false;
-  const expected = signPayload(secret, body);
+  const expected = await signPayload(secret, body);
   // timing-safe compare
   if (expected.length !== signature.length) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && a.equals(b) && timingSafeEqualHex(expected, signature);
+  return timingSafeEqualHex(expected, signature);
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {
@@ -127,7 +161,7 @@ async function deliverWithRetry(
   };
   // v0.7: HMAC signing
   if (config.secret) {
-    headers['X-Goose-Autonomous-Signature'] = signPayload(config.secret, body);
+    headers['X-Goose-Autonomous-Signature'] = await signPayload(config.secret, body);
   }
 
   // v0.8: resolve the retry policy
@@ -213,7 +247,7 @@ function recordDelivery(input: {
   config?: { url: string; secret?: string; retry?: any };
 }): void {
   deliveryLog.push({
-    id: randomUUID(),
+    id: uuid(),
     url: input.url,
     event: input.event,
     runId: input.runId,

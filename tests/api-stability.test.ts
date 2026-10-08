@@ -195,11 +195,11 @@ describe('API stability — function signatures', () => {
     expect(api.formatSessionName('verification', 3)).toBe('[Auto] Verification 03');
   });
 
-  it('signPayload + verifySignature round-trip', () => {
-    const sig = api.signPayload('secret', '{"event":"test"}');
+  it('signPayload + verifySignature round-trip', async () => {
+    const sig = await api.signPayload('secret', '{"event":"test"}');
     expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/);
-    expect(api.verifySignature('secret', '{"event":"test"}', sig)).toBe(true);
-    expect(api.verifySignature('wrong', '{"event":"test"}', sig)).toBe(false);
+    expect(await api.verifySignature('secret', '{"event":"test"}', sig)).toBe(true);
+    expect(await api.verifySignature('wrong', '{"event":"test"}', sig)).toBe(false);
   });
 
   it('resolvePolicy falls back to legacy threshold', () => {

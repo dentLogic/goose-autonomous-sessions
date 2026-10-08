@@ -7,7 +7,6 @@
 //   - Goose Desktop  (Electron main-process adapters)
 //   - a Next.js app   (Prisma/SQLite adapters — see ./stateStore.ts + ./logger.ts)
 //   - a standalone script (in-memory adapters — see examples/)
-import { randomUUID } from 'crypto';
 import { AUTONOMOUS_SCHEMA_VERSION, DEFAULT_CONTEXT_LIMIT } from './constants';
 import { detectVerificationStatus, detectWorkerStatus } from './completionDetector';
 import {
@@ -95,6 +94,17 @@ export interface ControllerDeps {
 
 const nowISO = () => new Date().toISOString();
 
+/** UUID generator — works in both Node.js and browser (no top-level crypto import). */
+function uuid(): string {
+  const g = globalThis as any;
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function freshRun(input: {
   objective: string;
   sessionId: string;
@@ -103,7 +113,7 @@ function freshRun(input: {
   const ts = nowISO();
   return {
     schemaVersion: AUTONOMOUS_SCHEMA_VERSION,
-    runId: randomUUID(),
+    runId: uuid(),
     status: 'active',
     phase: 'working',
     originalObjective: input.objective,
@@ -488,7 +498,7 @@ export class AutonomousSessionController {
     _turn: AgentTurn
   ): Promise<void> {
     run.phase = 'handoff';
-    run.transitionId = randomUUID();
+    run.transitionId = uuid();
     run.transitionStage = undefined;
     run.updatedAt = nowISO();
     await this.store.saveRun(run);
