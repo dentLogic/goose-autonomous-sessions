@@ -1,5 +1,5 @@
 diff --git a/ui/desktop/src/main.ts b/ui/desktop/src/main.ts
-index 45a4a7a..79ccf78 100644
+index 45a4a7a..9db9169 100644
 --- a/ui/desktop/src/main.ts
 +++ b/ui/desktop/src/main.ts
 @@ -1931,6 +1931,8 @@ const validSettingKeys: Set<string> = new Set([
@@ -11,7 +11,7 @@ index 45a4a7a..79ccf78 100644
  ]);
  
  ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
-@@ -1964,6 +1966,63 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
+@@ -1964,6 +1966,112 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
    }
  });
  
@@ -52,22 +52,71 @@ index 45a4a7a..79ccf78 100644
 +  await fs.writeFile(AUTONOMOUS_SETTINGS_FILE, JSON.stringify(settings, null, 2));
 +});
 +
-+// goose-autonomous-sessions: initialize the controller
++// goose-autonomous-sessions: auto-create settings + state on startup
++// This ensures the dashboard has data to show without manual file creation.
 +async function initAutonomousController() {
 +  try {
-+    const { initController } = await import('./autonomous');
-+    const { electronStateStore } = await import('./adapters/electron-state-store');
-+    const { electronLogger } = await import('./adapters/electron-logger');
-+    const { acpHandoffGenerator, acpSendPrompt } = await import('./adapters/acp-integration');
-+    initController({
-+      store: electronStateStore,
-+      logger: electronLogger,
-+      generateHandoffResponse: acpHandoffGenerator,
-+      sendPrompt: acpSendPrompt,
-+    });
-+    console.log('[autonomous] controller initialized');
++    // 1. Create default settings file if it doesn't exist
++    let settings;
++    try {
++      const raw = await fs.readFile(AUTONOMOUS_SETTINGS_FILE, 'utf8');
++      settings = JSON.parse(raw);
++    } catch {
++      // File doesn't exist — create with defaults
++      settings = { enabled: false, rolloverThreshold: 0.75 };
++      await fs.writeFile(AUTONOMOUS_SETTINGS_FILE, JSON.stringify(settings, null, 2));
++      console.log('[autonomous] created default settings file');
++    }
++
++    // 2. Create a default run state if enabled and no run exists
++    if (settings.enabled) {
++      let runState = null;
++      try {
++        const raw = await fs.readFile(AUTONOMOUS_STATE_FILE, 'utf8');
++        runState = JSON.parse(raw);
++      } catch {
++        // No state file — create one
++      }
++
++      if (!runState) {
++        const now = new Date().toISOString();
++        runState = {
++          schemaVersion: 1,
++          runId: 'auto-' + Date.now(),
++          status: 'active',
++          phase: 'working',
++          originalObjective: 'Autonomous session active',
++          currentSessionId: 'auto-session',
++          rolloverPending: false,
++          contextUsage: 0,
++          contextLimit: 200000,
++          rolloverThreshold: settings.rolloverThreshold || 0.75,
++          workerGeneration: 1,
++          verificationAttempt: 0,
++          createdAt: now,
++          updatedAt: now,
++        };
++        await fs.writeFile(AUTONOMOUS_STATE_FILE, JSON.stringify(runState, null, 2));
++        console.log('[autonomous] created initial run state — run started');
++      }
++
++      // 3. Initialize the controller with electron adapters
++      const { initController } = await import('./autonomous');
++      const { electronStateStore } = await import('./adapters/electron-state-store');
++      const { electronLogger } = await import('./adapters/electron-logger');
++      const { acpHandoffGenerator, acpSendPrompt } = await import('./adapters/acp-integration');
++      initController({
++        store: electronStateStore,
++        logger: electronLogger,
++        generateHandoffResponse: acpHandoffGenerator,
++        sendPrompt: acpSendPrompt,
++      });
++      console.log('[autonomous] controller initialized — autonomous mode ON');
++    } else {
++      console.log('[autonomous] controller initialized — autonomous mode OFF (enable in settings)');
++    }
 +  } catch (e) {
-+    console.error('[autonomous] failed to initialize controller:', e);
++    console.error('[autonomous] failed to initialize:', e);
 +  }
 +}
 +
@@ -75,7 +124,7 @@ index 45a4a7a..79ccf78 100644
  ipcMain.handle('get-secret-key', (event) => {
    const windowId = BrowserWindow.fromWebContents(event.sender)?.id;
    if (!windowId) {
-@@ -3093,6 +3152,7 @@ async function appMain() {
+@@ -3093,6 +3201,7 @@ async function appMain() {
  
  app.whenReady().then(async () => {
    try {
