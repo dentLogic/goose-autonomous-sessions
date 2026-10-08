@@ -349,7 +349,13 @@ export class AutonomousSessionController {
   ): Promise<AutonomousRun | null> {
     const run = await this.store.getRun();
     if (!run || run.status !== 'active') return run;
-    if (sessionId !== run.currentSessionId) return run;
+    // Accept context updates from any session — if the sessionId differs from
+    // what we have, update currentSessionId to track the active Goose session.
+    // This is essential for the Goose Desktop integration where the session ID
+    // is assigned by Goose (not by our startRun call).
+    if (sessionId !== run.currentSessionId) {
+      run.currentSessionId = sessionId;
+    }
     run.contextUsage = used;
     run.contextLimit = limit;
 
@@ -398,7 +404,10 @@ export class AutonomousSessionController {
     return this.serialize(async () => {
       const run = await this.store.getRun();
       if (!run || run.status !== 'active') return run;
-      if (sessionId !== run.currentSessionId) return run;
+      if (sessionId !== run.currentSessionId) {
+        // Accept turn-finished from any session — update tracking
+        run.currentSessionId = sessionId;
+      }
 
       // 1. verification result
       if (run.phase === 'verifying') {
