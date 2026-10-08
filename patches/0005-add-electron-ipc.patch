@@ -1,130 +1,160 @@
 diff --git a/ui/desktop/src/main.ts b/ui/desktop/src/main.ts
-index 45a4a7a..9db9169 100644
+index 45a4a7a..f066721 100644
 --- a/ui/desktop/src/main.ts
 +++ b/ui/desktop/src/main.ts
-@@ -1931,6 +1931,8 @@ const validSettingKeys: Set<string> = new Set([
+@@ -1931,6 +1931,7 @@ const validSettingKeys: Set<string> = new Set([
    'disableAutoDownload',
    'recentModels',
    'useLegacyAgentLoop',
-+  // goose-autonomous-sessions
 +  'autonomous',
  ]);
  
  ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
-@@ -1964,6 +1966,112 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
+@@ -1964,6 +1965,143 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
    }
  });
  
-+// goose-autonomous-sessions: IPC bridge
++// goose-autonomous-sessions: IPC bridge + controller
 +const AUTONOMOUS_STATE_FILE = path.join(app.getPath('userData'), 'autonomous-state.json');
 +const AUTONOMOUS_SETTINGS_FILE = path.join(app.getPath('userData'), 'autonomous-settings.json');
 +
-+ipcMain.handle('autonomous:get-state', async () => {
++// State file read/write helpers
++async function readJson(file: string, fallback: any): Promise<any> {
 +  try {
-+    const raw = await fs.readFile(AUTONOMOUS_STATE_FILE, 'utf8');
++    const raw = await fs.readFile(file, 'utf8');
 +    return JSON.parse(raw);
 +  } catch {
-+    return null;
++    return fallback;
 +  }
-+});
++}
++async function writeJson(file: string, data: any): Promise<void> {
++  await fs.writeFile(file, JSON.stringify(data, null, 2));
++}
 +
-+ipcMain.handle('autonomous:set-state', async (_event, state: unknown) => {
-+  await fs.writeFile(AUTONOMOUS_STATE_FILE, JSON.stringify(state, null, 2));
-+});
-+
++// IPC: state get/set/clear
++ipcMain.handle('autonomous:get-state', async () => readJson(AUTONOMOUS_STATE_FILE, null));
++ipcMain.handle('autonomous:set-state', async (_e, state: unknown) => writeJson(AUTONOMOUS_STATE_FILE, state));
 +ipcMain.handle('autonomous:clear-state', async () => {
++  try { await fs.unlink(AUTONOMOUS_STATE_FILE); } catch {}
++});
++
++// IPC: settings get/set
++ipcMain.handle('autonomous:get-settings', async () => readJson(AUTONOMOUS_SETTINGS_FILE, { enabled: false, rolloverThreshold: 0.75 }));
++ipcMain.handle('autonomous:set-settings', async (_e, settings: unknown) => writeJson(AUTONOMOUS_SETTINGS_FILE, settings));
++
++// IPC: sessions
++ipcMain.handle('autonomous:get-sessions', async () => {
 +  try {
-+    await fs.unlink(AUTONOMOUS_STATE_FILE);
++    const sessionsFile = path.join(app.getPath('userData'), 'autonomous-sessions.json');
++    const data = await readJson(sessionsFile, { sessions: [] });
++    return data.sessions || [];
 +  } catch {
++    return [];
 +  }
 +});
 +
-+ipcMain.handle('autonomous:get-settings', async () => {
++// IPC: logs
++ipcMain.handle('autonomous:get-logs', async (_e, limit?: number, runId?: string) => {
 +  try {
-+    const raw = await fs.readFile(AUTONOMOUS_SETTINGS_FILE, 'utf8');
-+    return JSON.parse(raw);
++    const logsFile = path.join(app.getPath('userData'), 'autonomous.log.jsonl');
++    const data = await readJson(logsFile, { logs: [] });
++    let logs = data.logs || [];
++    if (runId) logs = logs.filter((l: any) => l.runId === runId);
++    return logs.slice(-(limit || 200)).reverse();
 +  } catch {
-+    return { enabled: false, rolloverThreshold: 0.75 };
++    return [];
 +  }
 +});
 +
-+ipcMain.handle('autonomous:set-settings', async (_event, settings: unknown) => {
-+  await fs.writeFile(AUTONOMOUS_SETTINGS_FILE, JSON.stringify(settings, null, 2));
-+});
++// Controller reference (initialized in initAutonomousController)
++let _controller: any = null;
 +
-+// goose-autonomous-sessions: auto-create settings + state on startup
-+// This ensures the dashboard has data to show without manual file creation.
 +async function initAutonomousController() {
 +  try {
-+    // 1. Create default settings file if it doesn't exist
-+    let settings;
-+    try {
-+      const raw = await fs.readFile(AUTONOMOUS_SETTINGS_FILE, 'utf8');
-+      settings = JSON.parse(raw);
-+    } catch {
-+      // File doesn't exist — create with defaults
++    // 1. Create default settings if missing
++    let settings = await readJson(AUTONOMOUS_SETTINGS_FILE, null);
++    if (!settings) {
 +      settings = { enabled: false, rolloverThreshold: 0.75 };
-+      await fs.writeFile(AUTONOMOUS_SETTINGS_FILE, JSON.stringify(settings, null, 2));
++      await writeJson(AUTONOMOUS_SETTINGS_FILE, settings);
 +      console.log('[autonomous] created default settings file');
 +    }
 +
-+    // 2. Create a default run state if enabled and no run exists
++    // 2. Initialize the controller with electron adapters
++    const { initController } = await import('./autonomous');
++    const { electronStateStore } = await import('./adapters/electron-state-store');
++    const { electronLogger } = await import('./adapters/electron-logger');
++    const { acpHandoffGenerator, acpSendPrompt } = await import('./adapters/acp-integration');
++    _controller = initController({
++      store: electronStateStore,
++      logger: electronLogger,
++      generateHandoffResponse: acpHandoffGenerator,
++      sendPrompt: acpSendPrompt,
++    });
++
 +    if (settings.enabled) {
-+      let runState = null;
-+      try {
-+        const raw = await fs.readFile(AUTONOMOUS_STATE_FILE, 'utf8');
-+        runState = JSON.parse(raw);
-+      } catch {
-+        // No state file — create one
-+      }
-+
-+      if (!runState) {
-+        const now = new Date().toISOString();
-+        runState = {
-+          schemaVersion: 1,
-+          runId: 'auto-' + Date.now(),
-+          status: 'active',
-+          phase: 'working',
-+          originalObjective: 'Autonomous session active',
-+          currentSessionId: 'auto-session',
-+          rolloverPending: false,
-+          contextUsage: 0,
-+          contextLimit: 200000,
-+          rolloverThreshold: settings.rolloverThreshold || 0.75,
-+          workerGeneration: 1,
-+          verificationAttempt: 0,
-+          createdAt: now,
-+          updatedAt: now,
-+        };
-+        await fs.writeFile(AUTONOMOUS_STATE_FILE, JSON.stringify(runState, null, 2));
-+        console.log('[autonomous] created initial run state — run started');
-+      }
-+
-+      // 3. Initialize the controller with electron adapters
-+      const { initController } = await import('./autonomous');
-+      const { electronStateStore } = await import('./adapters/electron-state-store');
-+      const { electronLogger } = await import('./adapters/electron-logger');
-+      const { acpHandoffGenerator, acpSendPrompt } = await import('./adapters/acp-integration');
-+      initController({
-+        store: electronStateStore,
-+        logger: electronLogger,
-+        generateHandoffResponse: acpHandoffGenerator,
-+        sendPrompt: acpSendPrompt,
-+      });
 +      console.log('[autonomous] controller initialized — autonomous mode ON');
++
++      // 3. If no run exists, create one
++      const existingRun = await readJson(AUTONOMOUS_STATE_FILE, null);
++      if (!existingRun && _controller) {
++        try {
++          await _controller.startRun({
++            sessionId: 'auto-' + Date.now(),
++            objective: 'Autonomous session active',
++            settings,
++          });
++          console.log('[autonomous] auto-started run');
++        } catch (e) {
++          console.error('[autonomous] failed to auto-start run:', e);
++        }
++      }
 +    } else {
-+      console.log('[autonomous] controller initialized — autonomous mode OFF (enable in settings)');
++      console.log('[autonomous] controller initialized — autonomous mode OFF');
 +    }
 +  } catch (e) {
 +    console.error('[autonomous] failed to initialize:', e);
 +  }
 +}
 +
++// IPC bridge: renderer → main process controller
++// These let the renderer call the real controller in the main process.
++ipcMain.handle('autonomous:start-run', async (_e, sessionId: string, objective: string) => {
++  if (!_controller) return null;
++  const settings = await readJson(AUTONOMOUS_SETTINGS_FILE, { enabled: false, rolloverThreshold: 0.75 });
++  return _controller.startRun({ sessionId, objective, settings });
++});
++
++ipcMain.handle('autonomous:on-context-usage', async (_e, sessionId: string, used: number, limit: number) => {
++  if (!_controller) return null;
++  return _controller.onContextUsage(sessionId, used, limit);
++});
++
++ipcMain.handle('autonomous:on-turn-finished', async (_e, sessionId: string, lastText: string, turn: any) => {
++  if (!_controller) return null;
++  return _controller.onTurnFinished(sessionId, lastText, turn);
++});
++
++ipcMain.handle('autonomous:stop-run', async () => {
++  if (!_controller) return null;
++  return _controller.stopRun();
++});
++
++ipcMain.handle('autonomous:resume-run', async () => {
++  if (!_controller) return null;
++  return _controller.resumeRun();
++});
++
++ipcMain.handle('autonomous:get-state-live', async () => {
++  if (!_controller) return null;
++  return _controller.getState();
++});
++
++
 +
  ipcMain.handle('get-secret-key', (event) => {
    const windowId = BrowserWindow.fromWebContents(event.sender)?.id;
    if (!windowId) {
-@@ -3093,6 +3201,7 @@ async function appMain() {
+@@ -3093,6 +3231,7 @@ async function appMain() {
  
  app.whenReady().then(async () => {
    try {
@@ -133,10 +163,10 @@ index 45a4a7a..9db9169 100644
    } catch (error) {
      dialog.showErrorBox('Goose Error', `Failed to create main window: ${error}`);
 diff --git a/ui/desktop/src/preload.ts b/ui/desktop/src/preload.ts
-index 261bff1..f1cb1cb 100644
+index 261bff1..41a841e 100644
 --- a/ui/desktop/src/preload.ts
 +++ b/ui/desktop/src/preload.ts
-@@ -133,6 +133,12 @@ type ElectronAPI = {
+@@ -133,6 +133,20 @@ type ElectronAPI = {
    getDockIconState: () => Promise<boolean>;
    getSetting: <K extends SettingKey>(key: K) => Promise<Settings[K]>;
    setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => Promise<void>;
@@ -146,19 +176,35 @@ index 261bff1..f1cb1cb 100644
 +  autonomousClearState: () => Promise<void>;
 +  autonomousGetSettings: () => Promise<unknown>;
 +  autonomousSetSettings: (settings: unknown) => Promise<void>;
++  autonomousGetSessions: () => Promise<unknown[]>;
++  autonomousGetLogs: (limit?: number, runId?: string) => Promise<unknown[]>;
++  autonomousStartRun: (sessionId: string, objective: string) => Promise<unknown>;
++  autonomousOnContextUsage: (sessionId: string, used: number, limit: number) => Promise<unknown>;
++  autonomousOnTurnFinished: (sessionId: string, lastText: string, turn: unknown) => Promise<unknown>;
++  autonomousStopRun: () => Promise<unknown>;
++  autonomousResumeRun: () => Promise<unknown>;
++  autonomousGetStateLive: () => Promise<unknown>;
    getSecretKey: () => Promise<string | null>;
    getAcpUrl: () => Promise<string | null>;
    setWakelock: (enable: boolean) => Promise<boolean>;
-@@ -260,6 +266,13 @@ const electronAPI: ElectronAPI = {
+@@ -260,6 +274,21 @@ const electronAPI: ElectronAPI = {
      }
      return ipcRenderer.invoke('set-setting', key, value);
    },
-+  // goose-autonomous-sessions
++  // goose-autonomous-sessions: IPC bridge to main process controller
 +  autonomousGetState: () => ipcRenderer.invoke('autonomous:get-state'),
 +  autonomousSetState: (state: unknown) => ipcRenderer.invoke('autonomous:set-state', state),
 +  autonomousClearState: () => ipcRenderer.invoke('autonomous:clear-state'),
 +  autonomousGetSettings: () => ipcRenderer.invoke('autonomous:get-settings'),
 +  autonomousSetSettings: (settings: unknown) => ipcRenderer.invoke('autonomous:set-settings', settings),
++  autonomousGetSessions: () => ipcRenderer.invoke('autonomous:get-sessions'),
++  autonomousGetLogs: (limit?: number, runId?: string) => ipcRenderer.invoke('autonomous:get-logs', limit, runId),
++  autonomousStartRun: (sessionId: string, objective: string) => ipcRenderer.invoke('autonomous:start-run', sessionId, objective),
++  autonomousOnContextUsage: (sessionId: string, used: number, limit: number) => ipcRenderer.invoke('autonomous:on-context-usage', sessionId, used, limit),
++  autonomousOnTurnFinished: (sessionId: string, lastText: string, turn: unknown) => ipcRenderer.invoke('autonomous:on-turn-finished', sessionId, lastText, turn),
++  autonomousStopRun: () => ipcRenderer.invoke('autonomous:stop-run'),
++  autonomousResumeRun: () => ipcRenderer.invoke('autonomous:resume-run'),
++  autonomousGetStateLive: () => ipcRenderer.invoke('autonomous:get-state-live'),
 +
    getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
    getAcpUrl: () => ipcRenderer.invoke('get-acp-url'),
