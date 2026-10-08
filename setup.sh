@@ -46,7 +46,7 @@ echo ""
 # Step 1: Prerequisites
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 1/7: Prerequisites ───"
+bold "─── Step 1/8: Prerequisites ───"
 echo ""
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -94,7 +94,7 @@ echo ""
 # Step 2: Clone Goose source
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 2/7: Clone Goose source ───"
+bold "─── Step 2/8: Clone Goose source ───"
 echo ""
 
 if [[ -d "$CLONE_DIR/.git" ]]; then
@@ -110,7 +110,7 @@ echo ""
 # Step 3: Reset to clean state at the pinned commit
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 3/7: Reset to pinned commit ───"
+bold "─── Step 3/8: Reset to pinned commit ───"
 echo ""
 
 cd "$CLONE_DIR"
@@ -146,7 +146,7 @@ echo ""
 # Step 4: Install autonomous module + adapters
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 4/7: Install autonomous module ───"
+bold "─── Step 4/8: Install autonomous module ───"
 echo ""
 
 MODULE_SRC="$SCRIPT_DIR/src/autonomous"
@@ -192,7 +192,7 @@ echo ""
 # Step 5: Apply patches
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 5/7: Apply patches ───"
+bold "─── Step 5/8: Apply patches ───"
 echo ""
 
 PATCH_DIR="$SCRIPT_DIR/patches"
@@ -209,18 +209,30 @@ echo ""
 # Step 6: Install dependencies + build (from workspace root ui/)
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 6/7: Install dependencies + build ───"
+bold "─── Step 6/8: Install dependencies + build ───"
 echo ""
 
-# Goose uses a pnpm workspace at ui/ — must install from there, NOT ui/desktop/
+# Goose uses a pnpm workspace at ui/ — must install from there
 cd "$CLONE_DIR/ui"
+
+# Clean any broken partial install from prior attempts
+if [[ -d node_modules && ! -f node_modules/.bin/tsx ]]; then
+  yellow "  Cleaning broken node_modules from prior attempt..."
+  rm -rf node_modules
+  # Also clean workspace member node_modules
+  rm -rf goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules
+fi
 
 echo "  Installing dependencies (this takes a few minutes)..."
 pnpm install 2>&1 | tail -5
 
 if [[ $? -ne 0 ]]; then
   red "✗ Dependency install failed."
-  echo "  Try manually:  cd $CLONE_DIR/ui && pnpm install"
+  echo ""
+  echo "  Try cleaning and re-running:"
+  echo "    cd $CLONE_DIR/ui"
+  echo "    rm -rf node_modules goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules"
+  echo "    pnpm install"
   exit 1
 fi
 green "✓ Dependencies installed"
@@ -235,16 +247,96 @@ green "✓ Build complete"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Step 7: Launch
+# Step 7: Create desktop shortcuts + application menu entries
 # ═══════════════════════════════════════════════════════════════════════════
 
-bold "─── Step 7/7: Launch ───"
+bold "─── Step 7/8: Create desktop shortcuts ───"
+echo ""
+
+# Create a launcher script that Goose Desktop can use
+LAUNCH_SCRIPT="$HOME/.local/bin/goose-autonomous"
+mkdir -p "$HOME/.local/bin"
+cat > "$LAUNCH_SCRIPT" << EOF
+#!/usr/bin/env bash
+cd "$CLONE_DIR/ui/desktop" && pnpm run start-gui
+EOF
+chmod +x "$LAUNCH_SCRIPT"
+green "✓ Launcher script: $LAUNCH_SCRIPT"
+
+# Create a .desktop file for the application menu
+DESKTOP_FILE="$HOME/.local/share/applications/goose-autonomous.desktop"
+mkdir -p "$HOME/.local/share/applications"
+
+# Try to find an icon
+ICON_PATH=""
+for icon in \
+  "$CLONE_DIR/ui/desktop/src/assets/icons/icon.png" \
+  "$CLONE_DIR/ui/desktop/src/assets/icon.png" \
+  "$CLONE_DIR/crates/goose/bin/icon.png" \
+  "$CLONE_DIR/ui/desktop/resources/icon.png"
+do
+  if [[ -f "$icon" ]]; then
+    ICON_PATH="$icon"
+    break
+  fi
+done
+[[ -z "$ICON_PATH" ]] && ICON_PATH="utilities-terminal"
+
+cat > "$DESKTOP_FILE" << EOF
+[Desktop Entry]
+Type=Application
+Name=Goose Autonomous
+Comment=Goose Desktop with autonomous sessions
+Exec=$LAUNCH_SCRIPT
+Icon=$ICON_PATH
+Terminal=false
+Categories=Development;AI;
+EOF
+green "✓ Application menu: Goose Autonomous"
+
+# Also create a desktop shortcut
+DESKTOP_SHORTCUT="$HOME/Desktop/Goose-Autonomous.desktop"
+cat > "$DESKTOP_SHORTCUT" << EOF
+[Desktop Entry]
+Type=Application
+Name=Goose Autonomous
+Comment=Goose Desktop with autonomous sessions
+Exec=$LAUNCH_SCRIPT
+Icon=$ICON_PATH
+Terminal=false
+Categories=Development;AI;
+EOF
+chmod +x "$DESKTOP_SHORTCUT"
+green "✓ Desktop shortcut: $HOME/Desktop/Goose-Autonomous.desktop"
+
+# Also create a shortcut for the monitoring dashboard
+DASHBOARD_SCRIPT="$HOME/.local/bin/goose-autonomous-dashboard"
+cat > "$DASHBOARD_SCRIPT" << EOF
+#!/usr/bin/env bash
+cd "$SCRIPT_DIR" && bun dashboard/server.ts
+EOF
+chmod +x "$DASHBOARD_SCRIPT"
+green "✓ Dashboard launcher: $DASHBOARD_SCRIPT"
+
+# Update desktop database
+update-desktop-database "$HOME/.local/share/applications/" 2>/dev/null || true
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Step 8: Launch
+# ═══════════════════════════════════════════════════════════════════════════
+
+bold "─── Step 8/8: Launch ───"
 echo ""
 
 green "✓ Everything is ready!"
 echo ""
-echo "  Goose source:  $CLONE_DIR"
-echo "  Desktop dir:   $CLONE_DIR/ui/desktop"
+echo "  Goose source:      $CLONE_DIR"
+echo "  Desktop dir:       $CLONE_DIR/ui/desktop"
+echo "  Launcher:          $LAUNCH_SCRIPT"
+echo "  App menu:          Goose Autonomous"
+echo "  Desktop shortcut:  ~/Desktop/Goose-Autonomous.desktop"
+echo "  Dashboard:         $DASHBOARD_SCRIPT"
 echo ""
 
 if $LAUNCH; then
