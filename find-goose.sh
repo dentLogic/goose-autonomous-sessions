@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 #
-# find-goose.sh — locate the Goose Desktop source checkout and offer to install.
+# find-goose.sh — locate the Goose Desktop SOURCE CODE and offer to install.
 #
-# Run with:  bash find-goose.sh
+# IMPORTANT: This script looks for Goose SOURCE CODE (a git clone), NOT the
+# Goose Desktop app you may have installed. The install.sh patches files in
+# ui/desktop/src/ — those files only exist in the source repository.
 #
-# Searches common locations for a Goose source tree, prints the path if found,
-# checks if it's at the pinned commit + has a clean git tree, then offers to
-# run install.sh automatically.
+# If you installed Goose as an app (downloaded .deb, .AppImage, or built it),
+# you still need to clone the source code separately:
+#
+#   git clone https://github.com/aaif-goose/goose.git ~/goose
+#   cd ~/goose
+#   git checkout ce0c4900837a51b2ae50ce0df1484c34a1be754e
 #
 # Usage:
 #   bash find-goose.sh                    # search + offer to install
@@ -33,15 +38,40 @@ for arg in "$@"; do
   esac
 done
 
-# A directory qualifies as a Goose source checkout if it contains
-# ui/desktop/src/ with main.ts — that's the tree install.sh patches.
+# A directory qualifies as Goose SOURCE CODE if it contains
+# ui/desktop/src/main.ts — that's what install.sh patches.
 is_goose_source() {
   local dir="$1"
   [[ -d "$dir/ui/desktop/src" ]] && [[ -f "$dir/ui/desktop/src/main.ts" ]]
 }
 
+# Check if Goose was installed as an APP (binary) — not source code
+detect_goose_app() {
+  local found=""
+  # Check PATH
+  if command -v goose >/dev/null 2>&1; then
+    found=$(command -v goose)
+  fi
+  # Check common binary locations
+  for p in \
+    /usr/local/bin/goose \
+    /usr/bin/goose \
+    "$HOME/.local/bin/goose" \
+    /opt/Goose/goose \
+    /opt/goose/bin/goose \
+    "$HOME/Applications/Goose" \
+    "$HOME/.config/Goose"
+  do
+    if [[ -e "$p" ]]; then
+      found="$p"
+      break
+    fi
+  done
+  echo "$found"
+}
+
 echo ""
-bold "🔍 Searching for Goose Desktop source..."
+bold "🔍 Searching for Goose Desktop SOURCE CODE..."
 echo ""
 
 # ─── Build the search list ────────────────────────────────────────────────────
@@ -116,15 +146,28 @@ fi
 PINNED="ce0c4900837a51b2ae50ce0df1484c34a1be754e"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ─── Not found ─────────────────────────────────────────────────────────────────
+# ─── Not found — check if the Goose APP is installed ─────────────────────────
 
 if [[ ${#UNIQUE_DIRS[@]} -eq 0 ]]; then
-  red "✗ No Goose Desktop source checkout found."
+  red "✗ Goose Desktop SOURCE CODE not found."
   echo ""
-  echo "  Searched: \$HOME, common project dirs, /tmp, /opt"
-  [[ -n "$CUSTOM_DIR" ]] && echo "  Custom: $CUSTOM_DIR"
-  echo ""
-  bold "  Clone Goose at the pinned commit:"
+
+  # Check if the Goose app (binary) is installed
+  GOOSE_APP=$(detect_goose_app)
+  if [[ -n "$GOOSE_APP" ]]; then
+    yellow "  You have Goose installed as an app at: $GOOSE_APP"
+    echo ""
+    red "  But install.sh needs the Goose SOURCE CODE (the git repository),"
+    red "  not the installed app. The patches modify files in ui/desktop/src/"
+    red "  which only exist in the source."
+    echo ""
+  else
+    echo "  Searched: \$HOME, common project dirs, /tmp, /opt"
+    [[ -n "$CUSTOM_DIR" ]] && echo "  Custom: $CUSTOM_DIR"
+    echo ""
+  fi
+
+  bold "  You need to clone the Goose SOURCE CODE:"
   echo ""
   echo "    git clone https://github.com/aaif-goose/goose.git ~/goose"
   echo "    cd ~/goose"
@@ -133,6 +176,23 @@ if [[ ${#UNIQUE_DIRS[@]} -eq 0 ]]; then
   bold "  Then re-run this script:"
   echo "    bash find-goose.sh"
   echo ""
+  bold "  Or pass the path directly to install.sh:"
+  echo "    ./install.sh ~/goose"
+  echo ""
+  echo "  ─────────────────────────────────────────────────────────"
+  echo "  WHY does install.sh need source code?"
+  echo "  ─────────────────────────────────────────────────────────"
+  echo "  install.sh patches 6 files inside Goose's source tree:"
+  echo "    ui/desktop/src/constants/events.ts"
+  echo "    ui/desktop/src/hooks/useChatSession.ts"
+  echo "    ui/desktop/src/hooks/useNavigationSessions.ts"
+  echo "    ui/desktop/src/main.ts"
+  echo "    ui/desktop/src/preload.ts"
+  echo "    ui/desktop/src/utils/settings.ts"
+  echo ""
+  echo "  These files don't exist in a pre-built Goose app."
+  echo "  You must have the source repository cloned to disk."
+  echo ""
   exit 1
 fi
 
@@ -140,7 +200,7 @@ fi
 
 if [[ ${#UNIQUE_DIRS[@]} -eq 1 ]]; then
   DIR="${UNIQUE_DIRS[0]}"
-  green "✓ Found Goose Desktop source:"
+  green "✓ Found Goose Desktop source code:"
   bold "  $DIR"
   echo ""
 
