@@ -369,17 +369,60 @@ echo ""
 bold "─── Step 7/9: Create desktop shortcuts ───"
 echo ""
 
-# Create a launcher script that Goose Desktop can use
+# The launcher script skips rebuild if already built (faster startup)
 LAUNCH_SCRIPT="$HOME/.local/bin/goose-autonomous"
 mkdir -p "$HOME/.local/bin"
-cat > "$LAUNCH_SCRIPT" << EOF
+cat > "$LAUNCH_SCRIPT" << 'LAUNCHER'
 #!/usr/bin/env bash
-cd "$CLONE_DIR/ui/desktop" && pnpm run start-gui
-EOF
-chmod +x "$LAUNCH_SCRIPT"
-green "✓ Launcher script: $LAUNCH_SCRIPT"
+#
+# goose-autonomous — launches the customized Goose Desktop.
+#
+# Skips the rebuild if already built (just starts electron-forge directly).
+# Run with --rebuild to force a rebuild first.
+#
 
-# Create a .desktop file for the application menu
+GOOSE_DIR="$HOME/goose"
+DESKTOP_DIR="$GOOSE_DIR/ui/desktop"
+
+# Check Goose source exists
+if [[ ! -d "$DESKTOP_DIR" ]]; then
+  echo "✗ Goose Desktop not found at $DESKTOP_DIR"
+  echo "  Run setup.sh first:  cd ~/Desktop/goose-autonomous-sessions && bash setup.sh"
+  exit 1
+fi
+
+# Check Goose binary exists
+if [[ ! -f "$GOOSE_DIR/target/release/goose" && ! -f "$GOOSE_DIR/target/debug/goose" ]]; then
+  echo "✗ Goose binary not found. Build it first:"
+  echo "  cd $GOOSE_DIR && cargo build --release"
+  exit 1
+fi
+
+# Check node_modules installed
+if [[ ! -d "$GOOSE_DIR/ui/node_modules" ]]; then
+  echo "  Installing dependencies (first run only)..."
+  cd "$GOOSE_DIR/ui" && pnpm install
+fi
+
+# Rebuild only if --rebuild flag or if build artifacts are missing
+if [[ "$1" == "--rebuild" ]] || [[ ! -f "$DESKTOP_DIR/.vite/build/main.js" ]]; then
+  echo "  Building ACP client + i18n..."
+  cd "$DESKTOP_DIR"
+  pnpm run build-goose-acp-client
+  pnpm run i18n:compile
+else
+  echo "  ✓ Build artifacts found — skipping rebuild (use --rebuild to force)"
+fi
+
+# Launch electron-forge directly (skip the rebuild that start-gui does)
+echo "  🪿 Launching Goose Desktop..."
+cd "$DESKTOP_DIR"
+npx electron-forge start
+LAUNCHER
+chmod +x "$LAUNCH_SCRIPT"
+green "✓ Launcher: $LAUNCH_SCRIPT"
+
+# Create a .desktop file for the application menu (Terminal=true so errors visible)
 DESKTOP_FILE="$HOME/.local/share/applications/goose-autonomous.desktop"
 mkdir -p "$HOME/.local/share/applications"
 
@@ -403,7 +446,7 @@ cat > "$DESKTOP_FILE" << EOF
 Type=Application
 Name=Goose Autonomous
 Comment=Goose Desktop with autonomous sessions
-Exec=$LAUNCH_SCRIPT
+Exec=gnome-terminal -- bash -c '$LAUNCH_SCRIPT; exec bash'
 Icon=$ICON_PATH
 Terminal=false
 Categories=Development;AI;
@@ -412,27 +455,59 @@ green "✓ Application menu: Goose Autonomous"
 
 # Also create a desktop shortcut
 DESKTOP_SHORTCUT="$HOME/Desktop/Goose-Autonomous.desktop"
-cat > "$DESKTOP_SHORTCUT" << EOF
-[Desktop Entry]
-Type=Application
-Name=Goose Autonomous
-Comment=Goose Desktop with autonomous sessions
-Exec=$LAUNCH_SCRIPT
-Icon=$ICON_PATH
-Terminal=false
-Categories=Development;AI;
-EOF
+cp "$DESKTOP_FILE" "$DESKTOP_SHORTCUT"
 chmod +x "$DESKTOP_SHORTCUT"
 green "✓ Desktop shortcut: $HOME/Desktop/Goose-Autonomous.desktop"
 
-# Also create a shortcut for the monitoring dashboard
+# Dashboard launcher
 DASHBOARD_SCRIPT="$HOME/.local/bin/goose-autonomous-dashboard"
-cat > "$DASHBOARD_SCRIPT" << EOF
+cat > "$DASHBOARD_SCRIPT" << 'DASH'
 #!/usr/bin/env bash
-cd "$SCRIPT_DIR" && bun dashboard/server.ts
-EOF
+#
+# goose-autonomous-dashboard — launches the monitoring dashboard.
+#
+SCRIPT_DIR="$(cd "$(dirname "$0")" && cd ../Desktop/goose-autonomous-sessions 2>/dev/null && pwd || echo "$HOME/Desktop/goose-autonomous-sessions")"
+if [[ ! -d "$SCRIPT_DIR" ]]; then
+  echo "✗ goose-autonomous-sessions not found at $SCRIPT_DIR"
+  exit 1
+fi
+cd "$SCRIPT_DIR"
+if command -v bun >/dev/null 2>&1; then
+  bun dashboard/server.ts
+else
+  npx tsx dashboard/server.ts
+fi
+DASH
 chmod +x "$DASHBOARD_SCRIPT"
-green "✓ Dashboard launcher: $DASHBOARD_SCRIPT"
+green "✓ Dashboard: $DASHBOARD_SCRIPT"
+
+# Create an "all-in-one" startup script
+ALL_IN_ONE="$HOME/.local/bin/goose-start-all"
+cat > "$ALL_IN_ONE" << 'ALL'
+#!/usr/bin/env bash
+#
+# goose-start-all — starts Goose Desktop + monitoring dashboard together.
+#
+echo "🪿 Starting Goose Autonomous Desktop + Dashboard..."
+echo ""
+
+# Start the dashboard in a background terminal
+if command -v gnome-terminal >/dev/null 2>&1; then
+  gnome-terminal --title="Goose Dashboard" -- bash -c 'goose-autonomous-dashboard; exec bash' &
+  echo "  ✓ Dashboard started in new terminal (http://localhost:7878)"
+else
+  echo "  ⚠  gnome-terminal not found — start dashboard manually:"
+  echo "    goose-autonomous-dashboard"
+fi
+
+sleep 1
+
+# Start Goose Desktop in the foreground
+echo "  🪿 Starting Goose Desktop..."
+goose-autonomous
+ALL
+chmod +x "$ALL_IN_ONE"
+green "✓ All-in-one starter: $ALL_IN_ONE"
 
 # Update desktop database
 update-desktop-database "$HOME/.local/share/applications/" 2>/dev/null || true
@@ -449,30 +524,27 @@ green "✓ Everything is ready!"
 echo ""
 echo "  Goose source:      $CLONE_DIR"
 echo "  Desktop dir:       $CLONE_DIR/ui/desktop"
-echo "  Launcher:          $LAUNCH_SCRIPT"
-echo "  App menu:          Goose Autonomous"
-echo "  Desktop shortcut:  ~/Desktop/Goose-Autonomous.desktop"
-echo "  Dashboard:         $DASHBOARD_SCRIPT"
+echo ""
+bold "  Daily commands (type these in terminal):"
+echo ""
+echo "    goose-autonomous            # start Goose Desktop"
+echo "    goose-autonomous --rebuild  # rebuild + start (if you changed code)"
+echo "    goose-autonomous-dashboard  # start monitoring dashboard"
+echo "    goose-start-all            # start both at once"
+echo ""
+bold "  Or use the desktop shortcuts:"
+echo "    Double-click 'Goose-Autonomous' on your desktop"
+echo "    Or search 'Goose Autonomous' in your app menu"
 echo ""
 
 if $LAUNCH; then
   bold "  Launching Goose Desktop..."
   echo ""
-  cd "$CLONE_DIR/ui/desktop"
-  # start-gui builds the ACP client + compiles i18n + launches electron-forge
-  pnpm run start-gui 2>&1 || {
-    yellow "  start-gui failed. Try manually:"
-    echo "    cd $CLONE_DIR/ui/desktop"
-    echo "    pnpm run start-gui"
-    echo ""
-    echo "  Or just electron-forge:"
-    echo "    cd $CLONE_DIR/ui/desktop"
-    echo "    npx electron-forge start"
-  }
+  # Use the launcher script (skips rebuild if already built)
+  bash "$LAUNCH_SCRIPT"
 else
   bold "  To launch manually:"
-  echo "    cd $CLONE_DIR/ui/desktop"
-  echo "    pnpm run start-gui"
+  echo "    goose-autonomous"
   echo ""
   bold "  Then in Goose Desktop:"
   echo "    Settings → enable 'Autonomous Sessions'"
