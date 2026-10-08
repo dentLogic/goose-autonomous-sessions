@@ -95,6 +95,7 @@ sudo apt-get install -y -qq \
   build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev \
   libclang-dev clang libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev \
   librsvg2-dev libdbus-1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+  cmake git curl wget file \
   >/dev/null 2>&1 || true
 
 # Export LIBCLANG_PATH so bindgen can find libclang
