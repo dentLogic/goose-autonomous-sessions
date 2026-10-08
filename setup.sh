@@ -417,7 +417,7 @@ fi
 # Launch electron-forge directly (skip the rebuild that start-gui does)
 echo "  🪿 Launching Goose Desktop..."
 cd "$DESKTOP_DIR"
-npx electron-forge start
+ELECTRON_DISABLE_SANDBOX=1 npx electron-forge start -- --no-sandbox
 LAUNCHER
 chmod +x "$LAUNCH_SCRIPT"
 green "✓ Launcher: $LAUNCH_SCRIPT"
