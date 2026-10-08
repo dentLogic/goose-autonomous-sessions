@@ -1,6 +1,8 @@
+diff --git a/ui/desktop/src/main.ts b/ui/desktop/src/main.ts
+index 45a4a7a..02a8913 100644
 --- a/ui/desktop/src/main.ts
 +++ b/ui/desktop/src/main.ts
-@@ -1931,6 +1931,8 @@
+@@ -1931,6 +1931,8 @@ const validSettingKeys: Set<string> = new Set([
    'disableAutoDownload',
    'recentModels',
    'useLegacyAgentLoop',
@@ -9,57 +11,19 @@
  ]);
  
  ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
-@@ -1964,6 +1966,46 @@
-   }
- });
+@@ -3093,6 +3095,7 @@ async function appMain() {
  
-+// goose-autonomous-sessions: IPC bridge for the renderer-side controller's
-+// StateStore adapter. All persistence happens in the Electron main process
-+// via the app-data path. Channels mirror src/autonomous/constants.ts IPC.
-+const AUTONOMOUS_STATE_FILE = path.join(app.getPath('userData'), 'autonomous-state.json');
-+const AUTONOMOUS_SETTINGS_FILE = path.join(app.getPath('userData'), 'autonomous-settings.json');
-+
-+ipcMain.handle('autonomous:get-state', async () => {
-+  try {
-+    const raw = await fs.readFile(AUTONOMOUS_STATE_FILE, 'utf8');
-+    return JSON.parse(raw);
-+  } catch {
-+    return null;
-+  }
-+});
-+
-+ipcMain.handle('autonomous:set-state', async (_event, state: unknown) => {
-+  await fs.writeFile(AUTONOMOUS_STATE_FILE, JSON.stringify(state, null, 2));
-+});
-+
-+ipcMain.handle('autonomous:clear-state', async () => {
-+  try {
-+    await fs.unlink(AUTONOMOUS_STATE_FILE);
-+  } catch {
-+    // already gone — not an error
-+  }
-+});
-+
-+ipcMain.handle('autonomous:get-settings', async () => {
-+  try {
-+    const raw = await fs.readFile(AUTONOMOUS_SETTINGS_FILE, 'utf8');
-+    return JSON.parse(raw);
-+  } catch {
-+    return { enabled: false, rolloverThreshold: 0.75 };
-+  }
-+});
-+
-+ipcMain.handle('autonomous:set-settings', async (_event, settings: unknown) => {
-+  await fs.writeFile(AUTONOMOUS_SETTINGS_FILE, JSON.stringify(settings, null, 2));
-+});
-+
- ipcMain.handle('get-secret-key', (event) => {
-   const windowId = BrowserWindow.fromWebContents(event.sender)?.id;
-   if (!windowId) {
-
+ app.whenReady().then(async () => {
+   try {
++    await initAutonomousController();
+     await appMain();
+   } catch (error) {
+     dialog.showErrorBox('Goose Error', `Failed to create main window: ${error}`);
+diff --git a/ui/desktop/src/preload.ts b/ui/desktop/src/preload.ts
+index 261bff1..da25cdb 100644
 --- a/ui/desktop/src/preload.ts
 +++ b/ui/desktop/src/preload.ts
-@@ -133,6 +133,12 @@
+@@ -133,6 +133,12 @@ type ElectronAPI = {
    getDockIconState: () => Promise<boolean>;
    getSetting: <K extends SettingKey>(key: K) => Promise<Settings[K]>;
    setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => Promise<void>;
@@ -72,13 +36,11 @@
    getSecretKey: () => Promise<string | null>;
    getAcpUrl: () => Promise<string | null>;
    setWakelock: (enable: boolean) => Promise<boolean>;
-@@ -260,6 +266,16 @@
+@@ -259,6 +265,14 @@ const electronAPI: ElectronAPI = {
+       localStorage.removeItem(localStorageKey);
      }
      return ipcRenderer.invoke('set-setting', key, value);
-   },
 +  // goose-autonomous-sessions: delegate to the dedicated IPC handlers
-+  // registered in main.ts that read/write the autonomous-state.json and
-+  // autonomous-settings.json files in the Electron app-data path.
 +  autonomousGetState: () => ipcRenderer.invoke('autonomous:get-state'),
 +  autonomousSetState: (state: unknown) =>
 +    ipcRenderer.invoke('autonomous:set-state', state),
@@ -86,6 +48,6 @@
 +  autonomousGetSettings: () => ipcRenderer.invoke('autonomous:get-settings'),
 +  autonomousSetSettings: (settings: unknown) =>
 +    ipcRenderer.invoke('autonomous:set-settings', settings),
+   },
    getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
    getAcpUrl: () => ipcRenderer.invoke('get-acp-url'),
-   setWakelock: (enable: boolean) => ipcRenderer.invoke('set-wakelock', enable),
