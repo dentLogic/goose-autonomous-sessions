@@ -62,9 +62,16 @@ fi
 green "✓ git"
 
 if ! command -v node >/dev/null 2>&1; then
-  yellow "  node not found — installing..."
+  yellow "  node not found — installing Node 22..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null 2>&1
   sudo apt-get install -y -qq nodejs >/dev/null 2>&1
+else
+  NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
+  if [[ "$NODE_MAJOR" -lt 20 ]]; then
+    yellow "  Node $(node --version) is too old (Goose needs 20+). Upgrading to Node 22..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null 2>&1
+    sudo apt-get install -y -qq nodejs >/dev/null 2>&1
+  fi
 fi
 green "✓ node $(node --version)"
 
@@ -215,24 +222,26 @@ echo ""
 # Goose uses a pnpm workspace at ui/ — must install from there
 cd "$CLONE_DIR/ui"
 
-# Clean any broken partial install from prior attempts
-if [[ -d node_modules && ! -f node_modules/.bin/tsx ]]; then
-  yellow "  Cleaning broken node_modules from prior attempt..."
-  rm -rf node_modules
-  # Also clean workspace member node_modules
-  rm -rf goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules
+# ALWAYS clean node_modules from prior attempts (they may have been built
+# with a different Node version or failed mid-install)
+if [[ -d node_modules ]]; then
+  yellow "  Cleaning node_modules from prior attempt..."
+  rm -rf node_modules goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules
 fi
 
-echo "  Installing dependencies (this takes a few minutes)..."
+echo "  Installing dependencies (this may take a few minutes)..."
 pnpm install 2>&1 | tail -5
 
 if [[ $? -ne 0 ]]; then
   red "✗ Dependency install failed."
   echo ""
-  echo "  Try cleaning and re-running:"
-  echo "    cd $CLONE_DIR/ui"
-  echo "    rm -rf node_modules goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules"
-  echo "    pnpm install"
+  echo "  Common fixes:"
+  echo "    1. Ensure Node 20+:  node --version  (setup.sh should have upgraded it)"
+  echo "    2. Clean and retry:"
+  echo "       cd $CLONE_DIR/ui"
+  echo "       rm -rf node_modules goose-acp-client/node_modules goose-acp/node_modules desktop/node_modules"
+  echo "       pnpm install"
+  echo ""
   exit 1
 fi
 green "✓ Dependencies installed"
