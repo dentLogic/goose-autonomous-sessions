@@ -20,7 +20,7 @@ index 45a4a7a..02a8913 100644
    } catch (error) {
      dialog.showErrorBox('Goose Error', `Failed to create main window: ${error}`);
 diff --git a/ui/desktop/src/preload.ts b/ui/desktop/src/preload.ts
-index 261bff1..afe20d6 100644
+index 261bff1..927a6e5 100644
 --- a/ui/desktop/src/preload.ts
 +++ b/ui/desktop/src/preload.ts
 @@ -133,6 +133,12 @@ type ElectronAPI = {
@@ -36,26 +36,16 @@ index 261bff1..afe20d6 100644
    getSecretKey: () => Promise<string | null>;
    getAcpUrl: () => Promise<string | null>;
    setWakelock: (enable: boolean) => Promise<boolean>;
-@@ -259,6 +265,22 @@ const electronAPI: ElectronAPI = {
-       localStorage.removeItem(localStorageKey);
+@@ -260,6 +266,12 @@ const electronAPI: ElectronAPI = {
      }
      return ipcRenderer.invoke('set-setting', key, value);
-+  // goose-autonomous-sessions: delegate to the dedicated IPC handlers
-+  autonomousGetState: () => {
-+    return ipcRenderer.invoke('autonomous:get-state');
-+  },
-+  autonomousSetState: (state: unknown) => {
-+    return ipcRenderer.invoke('autonomous:set-state', state);
-+  },
-+  autonomousClearState: () => {
-+    return ipcRenderer.invoke('autonomous:clear-state');
-+  },
-+  autonomousGetSettings: () => {
-+    return ipcRenderer.invoke('autonomous:get-settings');
-+  },
-+  autonomousSetSettings: (settings: unknown) => {
-+    return ipcRenderer.invoke('autonomous:set-settings', settings);
-+  },
    },
++  // goose-autonomous-sessions: delegate to the dedicated IPC handlers
++  autonomousGetState: () => ipcRenderer.invoke('autonomous:get-state'),
++  autonomousSetState: (state: unknown) => ipcRenderer.invoke('autonomous:set-state', state),
++  autonomousClearState: () => ipcRenderer.invoke('autonomous:clear-state'),
++  autonomousGetSettings: () => ipcRenderer.invoke('autonomous:get-settings'),
++  autonomousSetSettings: (settings: unknown) => ipcRenderer.invoke('autonomous:set-settings', settings),
    getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
    getAcpUrl: () => ipcRenderer.invoke('get-acp-url'),
+   setWakelock: (enable: boolean) => ipcRenderer.invoke('set-wakelock', enable),
