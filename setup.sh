@@ -492,18 +492,43 @@ echo "🪿 Starting Goose Autonomous Desktop + Dashboard..."
 echo ""
 
 # Start the dashboard in a background terminal
-if command -v gnome-terminal >/dev/null 2>&1; then
-  gnome-terminal --title="Goose Dashboard" -- bash -c 'goose-autonomous-dashboard; exec bash' &
+# Try different terminal emulators (Pop!_OS may use cosmic-term, xterm, etc.)
+TERM_CMD=""
+for term in gnome-terminal xterm konsole alacritty kitty cosmic-term; do
+  if command -v "$term" >/dev/null 2>&1; then
+    TERM_CMD="$term"
+    break
+  fi
+done
+
+if [[ -n "$TERM_CMD" ]]; then
+  case "$TERM_CMD" in
+    gnome-terminal|cosmic-term)
+      "$TERM_CMD" --title="Goose Dashboard" -- bash -c 'goose-autonomous-dashboard; exec bash' &
+      ;;
+    xterm)
+      xterm -title "Goose Dashboard" -e bash -c 'goose-autonomous-dashboard; exec bash' &
+      ;;
+    konsole)
+      konsole --new-tab -p tabtitle="Goose Dashboard" -e bash -c 'goose-autonomous-dashboard; exec bash' &
+      ;;
+    *)
+      "$TERM_CMD" -e bash -c 'goose-autonomous-dashboard; exec bash' &
+      ;;
+  esac
   echo "  ✓ Dashboard started in new terminal (http://localhost:7878)"
 else
-  echo "  ⚠  gnome-terminal not found — start dashboard manually:"
-  echo "    goose-autonomous-dashboard"
+  echo "  ⚠  No terminal found — starting dashboard in background..."
+  goose-autonomous-dashboard &
+  echo "  ✓ Dashboard running at http://localhost:7878"
 fi
 
-sleep 1
+sleep 2
 
 # Start Goose Desktop in the foreground
 echo "  🪿 Starting Goose Desktop..."
+echo "  (A new window will pop up — that's the Goose app)"
+echo ""
 goose-autonomous
 ALL
 chmod +x "$ALL_IN_ONE"
